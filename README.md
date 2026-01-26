@@ -47,7 +47,7 @@ conda create -n kloppy python=3.10
 conda activate kloppy
 
 # Install dependencies
-pip install kloppy pandas numpy matplotlib mplsoccer torch
+pip install kloppy pandas numpy matplotlib mplsoccer torch tqdm wandb
 ```
 
 ### Data Processing Pipeline
