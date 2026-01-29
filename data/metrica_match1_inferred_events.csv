@@ -54,8 +54,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 4652,4670,PASS,Away,22,Away,17,18
 4675,4676,TURNOVER,Away,17,Home,9,1
 4678,4679,TURNOVER,Home,9,Away,17,1
-4716,4748,PASS,Away,17,Away,23,32
-4749,4750,TURNOVER,Away,23,Home,7,1
+4716,4749,TURNOVER,Away,17,Home,7,33
 4755,4756,TURNOVER,Home,7,Away,24,1
 4761,4779,TURNOVER,Away,24,Home,6,18
 4792,4817,TURNOVER,Home,6,Away,17,25
@@ -103,13 +102,12 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 7352,7381,PASS,Away,18,Away,15,29
 7411,7419,TURNOVER,Away,15,Home,7,8
 7423,7424,TURNOVER,Home,7,Away,23,1
-7470,7471,TURNOVER,Away,23,Home,3,1
+7469,7470,TURNOVER,Away,23,Home,3,1
 7475,7476,TURNOVER,Home,3,Away,23,1
 7481,7482,TURNOVER,Away,23,Home,7,1
 7490,7517,TURNOVER,Home,7,Away,19,27
 7529,7551,PASS,Away,19,Away,18,22
 7612,7627,PASS,Away,18,Away,19,15
-7702,7723,PASS,Away,19,Away,21,21
 7753,7754,TURNOVER,Away,21,Home,7,1
 7755,7756,PASS,Home,7,Home,6,1
 7761,7763,PASS,Home,6,Home,3,2
@@ -127,7 +125,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 8945,9048,PASS,Away,19,Away,23,103
 9053,9054,TURNOVER,Away,23,Home,2,1
 9059,9060,PASS,Home,2,Home,3,1
-9107,9214,TURNOVER,Home,3,Away,23,107
 9224,9251,PASS,Away,23,Away,18,27
 9314,9332,PASS,Away,18,Away,19,18
 9348,9349,TURNOVER,Away,19,Home,9,1
@@ -149,8 +146,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 10633,10634,TURNOVER,Away,22,Home,8,1
 10637,10638,TURNOVER,Home,8,Away,20,1
 10644,10645,PASS,Away,20,Away,15,1
-10649,10650,TURNOVER,Away,15,Home,9,1
-10651,10652,TURNOVER,Home,9,Away,15,1
 10657,10658,TURNOVER,Away,15,Home,9,1
 10666,10692,TURNOVER,Home,9,Away,22,26
 10706,10707,TURNOVER,Away,22,Home,8,1
@@ -176,7 +171,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 13679,13680,TURNOVER,Home,5,Away,21,1
 13685,13691,TURNOVER,Away,21,Home,10,6
 13693,13694,TURNOVER,Home,10,Away,17,1
-13713,13738,TURNOVER,Away,17,Home,6,25
+13713,13736,TURNOVER,Away,17,Home,6,23
 13745,13762,TURNOVER,Home,6,Away,15,17
 13779,13813,TURNOVER,Away,15,Home,9,34
 13842,13843,TURNOVER,Home,9,Away,16,1
@@ -307,7 +302,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 22639,22664,TURNOVER,Away,24,Home,9,25
 22665,22666,TURNOVER,Home,9,Away,22,1
 22672,22673,TURNOVER,Away,22,Home,5,1
-22675,22676,TURNOVER,Home,5,Away,22,1
 22689,22730,PASS,Away,22,Away,20,41
 22736,22737,TURNOVER,Away,20,Home,6,1
 22740,22741,TURNOVER,Home,6,Away,20,1
@@ -402,7 +396,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 28563,28564,TURNOVER,Home,1,Away,23,1
 28584,28585,TURNOVER,Away,23,Home,2,1
 28588,28589,TURNOVER,Home,2,Away,23,1
-28597,28787,PASS,Away,23,Away,21,190
 28799,28804,PASS,Away,21,Away,22,5
 28867,28881,PASS,Away,22,Away,19,14
 28926,28938,PASS,Away,19,Away,22,12
@@ -412,7 +405,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 29032,29033,TURNOVER,Away,23,Home,2,1
 29041,29050,PASS,Home,2,Home,3,9
 29056,29057,PASS,Home,3,Home,4,1
-29061,29062,PASS,Home,4,Home,2,1
+29060,29062,PASS,Home,4,Home,2,2
 29071,29087,TURNOVER,Home,2,Away,19,16
 29092,29093,TURNOVER,Away,19,Home,9,1
 29105,29109,PASS,Home,9,Home,6,4
@@ -494,15 +487,12 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 36296,36329,TURNOVER,Away,23,Home,8,33
 36334,36335,TURNOVER,Home,8,Away,15,1
 36340,36341,TURNOVER,Away,15,Home,8,1
-36412,36413,TURNOVER,Home,8,Away,15,1
-36430,36534,TURNOVER,Away,15,Home,4,104
 36547,36591,TURNOVER,Home,4,Away,23,44
 36607,36608,TURNOVER,Away,23,Home,3,1
 36626,36688,PASS,Home,3,Home,1,62
 36696,36697,TURNOVER,Home,1,Away,22,1
 36708,36713,TURNOVER,Away,22,Home,10,5
 36726,36758,PASS,Home,10,Home,5,32
-36766,36879,TURNOVER,Home,5,Away,22,113
 36889,36902,PASS,Away,22,Away,17,13
 36965,36991,PASS,Away,17,Away,16,26
 37037,37077,PASS,Away,16,Away,15,40
@@ -560,7 +550,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 44674,44712,PASS,Home,4,Home,3,38
 44745,44775,PASS,Home,3,Home,2,30
 44831,44839,PASS,Home,2,Home,7,8
-44861,44862,TURNOVER,Home,7,Away,22,1
 44864,44865,TURNOVER,Away,22,Home,7,1
 45123,45129,PASS,Home,7,Home,10,6
 45144,45149,PASS,Home,10,Home,7,5
@@ -596,7 +585,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 48285,48286,TURNOVER,Home,4,Away,18,1
 48414,48431,PASS,Away,18,Away,19,17
 48487,48513,PASS,Away,19,Away,21,26
-48558,48559,TURNOVER,Away,21,Home,8,1
 48585,48587,PASS,Home,8,Home,12,2
 48615,48616,TURNOVER,Home,12,Away,23,1
 48622,48629,TURNOVER,Away,23,Home,6,7
@@ -646,7 +634,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 53779,53780,TURNOVER,Away,22,Home,5,1
 54294,54295,PASS,Home,7,Home,5,1
 54308,54314,PASS,Home,5,Home,7,6
-54377,54380,TURNOVER,Home,7,Away,21,3
 54384,54386,PASS,Away,21,Away,22,2
 54400,54406,PASS,Away,22,Away,19,6
 54479,54480,TURNOVER,Away,19,Home,10,1
@@ -688,7 +675,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 56753,56754,TURNOVER,Away,18,Home,8,1
 56764,56765,TURNOVER,Home,8,Away,18,1
 56775,56776,TURNOVER,Away,18,Home,10,1
-56808,56809,TURNOVER,Home,10,Away,15,1
 56821,56822,TURNOVER,Away,15,Home,10,1
 57516,57545,TURNOVER,Home,6,Away,21,29
 57550,57551,PASS,Away,21,Away,15,1
@@ -767,12 +753,9 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 63368,63378,TURNOVER,Home,6,Away,18,10
 63410,63411,TURNOVER,Away,18,Home,5,1
 63455,63456,TURNOVER,Home,5,Away,18,1
-63481,63527,TURNOVER,Away,18,Home,8,46
-63546,63717,TURNOVER,Home,8,Away,20,171
 63723,63724,TURNOVER,Away,20,Home,9,1
 63730,63765,TURNOVER,Home,9,Away,19,35
 63873,63892,PASS,Away,19,Away,17,19
-63935,63937,TURNOVER,Away,17,Home,8,2
 63997,63998,TURNOVER,Home,8,Away,17,1
 64007,64046,PASS,Away,17,Away,19,39
 64070,64101,PASS,Away,19,Away,15,31
@@ -846,7 +829,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 67672,67677,PASS,Away,21,Away,19,5
 67683,67688,TURNOVER,Away,19,Home,6,5
 67698,67726,TURNOVER,Home,6,Away,24,28
-67735,67751,TURNOVER,Away,24,Home,3,16
+67735,67749,TURNOVER,Away,24,Home,3,14
 67752,67753,TURNOVER,Home,3,Away,23,1
 67768,67769,TURNOVER,Away,23,Home,2,1
 67786,67787,TURNOVER,Home,2,Away,23,1
@@ -894,7 +877,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 72324,72353,PASS,Away,18,Away,22,29
 72366,72380,PASS,Away,22,Away,23,14
 72417,72418,TURNOVER,Away,23,Home,6,1
-72426,72442,TURNOVER,Home,6,Away,23,16
 72467,72468,TURNOVER,Away,23,Home,5,1
 72473,72480,TURNOVER,Home,5,Away,22,7
 72545,72546,TURNOVER,Away,22,Home,5,1
@@ -902,7 +884,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 72605,72606,TURNOVER,Home,2,Away,18,1
 72617,72625,TURNOVER,Away,18,Home,5,8
 72635,72688,TURNOVER,Home,5,Away,20,53
-72696,72697,PASS,Away,20,Away,16,1
 72838,72851,PASS,Away,16,Away,21,13
 72904,72906,TURNOVER,Away,21,Home,10,2
 72915,72944,TURNOVER,Home,10,Away,15,29
@@ -1020,7 +1001,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 81497,81498,TURNOVER,Home,5,Away,20,1
 81509,81524,TURNOVER,Away,20,Home,10,15
 81553,81554,TURNOVER,Home,10,Away,16,1
-81562,81574,PASS,Away,16,Away,15,12
+81562,81573,PASS,Away,16,Away,15,11
 82401,82421,TURNOVER,Home,6,Away,24,20
 82429,82438,TURNOVER,Away,24,Home,9,9
 82445,82446,TURNOVER,Home,9,Away,19,1
@@ -1183,6 +1164,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 96121,96129,PASS,Away,18,Away,22,8
 96368,96375,PASS,Away,22,Away,21,7
 96383,96409,PASS,Away,21,Away,19,26
+96432,96433,TURNOVER,Away,19,Home,9,1
 97241,97275,TURNOVER,Away,19,Home,8,34
 97281,97282,TURNOVER,Home,8,Away,23,1
 97284,97285,PASS,Away,23,Away,16,1
@@ -1199,7 +1181,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 98150,98151,TURNOVER,Home,9,Away,19,1
 98162,98174,TURNOVER,Away,19,Home,6,12
 98181,98193,TURNOVER,Home,6,Away,24,12
-98201,98297,TURNOVER,Away,24,Home,2,96
 98307,98342,PASS,Home,2,Home,4,35
 98418,98427,PASS,Home,4,Home,8,9
 98453,98469,PASS,Home,8,Home,6,16
@@ -1219,7 +1200,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 98990,98998,PASS,Away,21,Away,22,8
 99002,99003,TURNOVER,Away,22,Home,5,1
 99006,99007,TURNOVER,Home,5,Away,22,1
-99013,99031,TURNOVER,Away,22,Home,9,18
+99013,99015,PASS,Away,22,Away,25,2
 100662,100670,PASS,Away,19,Away,21,8
 100809,100828,PASS,Away,21,Away,22,19
 100854,100872,PASS,Away,22,Away,20,18
@@ -1230,7 +1211,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 101118,101127,PASS,Home,6,Home,2,9
 101135,101137,PASS,Home,2,Home,12,2
 101144,101162,PASS,Home,12,Home,9,18
-101173,101192,TURNOVER,Home,9,Away,16,19
+101173,101190,TURNOVER,Home,9,Away,16,17
 101236,101272,PASS,Away,16,Away,25,36
 101359,101386,PASS,Away,25,Away,20,27
 101427,101451,PASS,Away,20,Away,22,24
@@ -1242,7 +1223,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 102798,102799,PASS,Home,12,Home,9,1
 102810,102812,TURNOVER,Home,9,Away,20,2
 102824,102854,TURNOVER,Away,20,Home,10,30
-102922,102952,TURNOVER,Home,10,Away,16,30
+102922,102950,TURNOVER,Home,10,Away,16,28
 102961,102971,PASS,Away,16,Away,21,10
 102999,103000,TURNOVER,Away,21,Home,8,1
 103012,103020,TURNOVER,Home,8,Away,16,8
@@ -1364,7 +1345,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 113971,113995,TURNOVER,Home,8,Away,26,24
 114107,114108,TURNOVER,Away,26,Home,4,1
 114115,114116,TURNOVER,Home,4,Away,26,1
-114644,114669,TURNOVER,Away,19,Home,3,25
 114685,114686,TURNOVER,Home,3,Away,16,1
 114707,114769,PASS,Away,16,Away,27,62
 114788,114813,PASS,Away,27,Away,21,25
@@ -1373,7 +1353,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 114978,115011,PASS,Home,8,Home,3,33
 115016,115017,TURNOVER,Home,3,Away,15,1
 115026,115037,TURNOVER,Away,15,Home,12,11
-115044,115045,TURNOVER,Home,12,Away,18,1
+115042,115043,TURNOVER,Home,12,Away,18,1
 115130,115131,TURNOVER,Away,18,Home,2,1
 115140,115141,TURNOVER,Home,2,Away,26,1
 115151,115170,PASS,Away,26,Away,23,19
@@ -1381,7 +1361,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 115264,115271,TURNOVER,Home,13,Away,19,7
 115316,115320,TURNOVER,Away,19,Home,12,4
 115337,115370,PASS,Home,12,Home,4,33
-115391,115399,PASS,Home,4,Home,11,8
+115391,115397,PASS,Home,4,Home,11,6
 115820,115867,TURNOVER,Home,11,Away,21,47
 115873,115892,PASS,Away,21,Away,15,19
 115923,115924,PASS,Away,15,Away,17,1
@@ -1395,7 +1375,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 116256,116268,PASS,Home,13,Home,7,12
 116290,116291,TURNOVER,Home,7,Away,27,1
 116298,116299,TURNOVER,Away,27,Home,10,1
-116408,116411,TURNOVER,Home,10,Away,18,3
 116466,116467,TURNOVER,Away,18,Home,12,1
 116473,116480,TURNOVER,Home,12,Away,26,7
 116599,116600,TURNOVER,Away,26,Home,3,1
@@ -1440,7 +1419,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 118807,118828,TURNOVER,Home,5,Away,20,21
 118841,118856,TURNOVER,Away,20,Home,10,15
 118912,118913,TURNOVER,Home,10,Away,16,1
-118920,118959,PASS,Away,16,Away,25,39
 119741,119765,PASS,Away,25,Away,15,24
 119819,119838,PASS,Away,15,Away,21,19
 119867,119882,PASS,Away,21,Away,17,15
@@ -1461,7 +1439,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 122060,122061,PASS,Away,21,Away,15,1
 122075,122076,TURNOVER,Away,15,Home,9,1
 122084,122132,PASS,Home,9,Home,14,48
-122161,122214,PASS,Home,14,Home,7,53
 122250,122266,PASS,Home,7,Home,2,16
 122289,122299,PASS,Home,2,Home,12,10
 122317,122326,PASS,Home,12,Home,5,9
@@ -1482,8 +1459,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 123098,123104,PASS,Home,13,Home,8,6
 123117,123119,TURNOVER,Home,8,Away,17,2
 123146,123147,TURNOVER,Away,17,Home,4,1
-123196,123212,TURNOVER,Home,4,Away,17,16
-123223,123283,TURNOVER,Away,17,Home,4,60
 123293,123318,PASS,Home,4,Home,13,25
 123359,123362,PASS,Home,13,Home,8,3
 123408,123409,PASS,Home,8,Home,4,1
@@ -1504,7 +1479,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 124142,124146,TURNOVER,Away,21,Home,12,4
 124159,124160,TURNOVER,Home,12,Away,21,1
 124168,124169,TURNOVER,Away,21,Home,5,1
-124183,124196,TURNOVER,Home,5,Away,15,13
 124221,124222,TURNOVER,Away,15,Home,13,1
 124232,124253,TURNOVER,Home,13,Away,17,21
 124333,124352,PASS,Away,17,Away,16,19
@@ -1517,7 +1491,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 124758,124759,PASS,Home,12,Home,5,1
 124763,124764,PASS,Home,5,Home,2,1
 124765,124766,TURNOVER,Home,2,Away,26,1
-124773,124786,TURNOVER,Away,26,Home,11,13
 125566,125638,PASS,Home,11,Home,7,72
 125650,125652,TURNOVER,Home,7,Away,27,2
 125660,125673,PASS,Away,27,Away,21,13
@@ -1549,7 +1522,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 127856,127859,TURNOVER,Home,12,Away,23,3
 127860,127861,TURNOVER,Away,23,Home,3,1
 127868,127869,TURNOVER,Home,3,Away,23,1
-127883,127888,TURNOVER,Away,23,Home,3,5
 127902,127905,PASS,Home,3,Home,12,3
 127923,127924,TURNOVER,Home,12,Away,26,1
 127933,127946,TURNOVER,Away,26,Home,4,13
@@ -1607,7 +1579,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 131537,131538,TURNOVER,Home,5,Away,28,1
 131546,131555,PASS,Away,28,Away,15,9
 131572,131644,PASS,Away,15,Away,26,72
-131655,131670,TURNOVER,Away,26,Home,5,15
 131690,131699,PASS,Home,5,Home,7,9
 131807,131819,PASS,Home,7,Home,5,12
 131858,131869,PASS,Home,5,Home,7,11
@@ -1636,22 +1607,19 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 133894,133895,TURNOVER,Away,21,Home,12,1
 133902,133951,TURNOVER,Home,12,Away,17,49
 134017,134019,PASS,Away,17,Away,28,2
-134047,134157,TURNOVER,Away,28,Home,11,110
 134834,134867,TURNOVER,Home,11,Away,23,33
 134871,134872,TURNOVER,Away,23,Home,4,1
 134877,134878,TURNOVER,Home,4,Away,28,1
 134883,134884,TURNOVER,Away,28,Home,8,1
-134894,135091,TURNOVER,Home,8,Away,21,197
 135097,135098,PASS,Away,21,Away,15,1
 135133,135149,TURNOVER,Away,15,Home,8,16
-135154,135212,TURNOVER,Home,8,Away,15,58
 135224,135234,PASS,Away,15,Away,28,10
 135276,135298,TURNOVER,Away,28,Home,4,22
 135309,135319,TURNOVER,Home,4,Away,23,10
 135432,135440,PASS,Away,23,Away,17,8
 135504,135519,PASS,Away,17,Away,28,15
 135534,135535,TURNOVER,Away,28,Home,12,1
-135543,135565,PASS,Home,12,Home,7,22
+135543,135562,PASS,Home,12,Home,7,19
 135591,135593,PASS,Home,7,Home,14,2
 135731,135732,TURNOVER,Home,14,Away,28,1
 135743,135816,TURNOVER,Away,28,Home,9,73
@@ -1712,7 +1680,6 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 141444,141448,TURNOVER,Home,14,Away,28,4
 141541,141543,PASS,Away,28,Away,23,2
 141544,141545,TURNOVER,Away,23,Home,2,1
-141550,141551,PASS,Home,2,Home,11,1
 142268,142350,PASS,Home,11,Home,4,82
 142362,142371,PASS,Home,4,Home,8,9
 142374,142375,TURNOVER,Home,8,Away,17,1
@@ -1723,7 +1690,7 @@ start_frame,end_frame,type,from_team,from_player,to_team,to_player,duration_fram
 142888,142889,TURNOVER,Away,27,Home,14,1
 142901,142933,PASS,Home,14,Home,2,32
 142950,142969,TURNOVER,Home,2,Away,21,19
-142980,143012,PASS,Away,21,Away,16,32
+142980,143009,PASS,Away,21,Away,16,29
 143135,143136,PASS,Away,16,Away,18,1
 143238,143239,TURNOVER,Away,18,Home,14,1
 143267,143268,TURNOVER,Home,14,Away,18,1

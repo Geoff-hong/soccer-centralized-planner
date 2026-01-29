@@ -12,9 +12,9 @@ from mplsoccer import Pitch
 # ===========================
 # 可视化配置
 # ===========================
-MATCH_ID = 1              # 比赛ID
-START_FRAME = 98000           # 起始帧（设置为 None 则从头开始）
-NUM_FRAMES = 2000         # 帧数（设置为 None 则画全部）
+MATCH_ID = 2              # 比赛ID
+START_FRAME = 0           # 起始帧（设置为 None 则从头开始）
+NUM_FRAMES = 200         # 帧数（设置为 None 则画全部）
 FPS = 25                  # 帧率
 
 def main():
@@ -23,7 +23,8 @@ def main():
     # =========================================================================
     print(f"[1/4] Loading Metrica tracking data (Match {MATCH_ID})...")
     
-    dataset = metrica.load_open_data(match_id=MATCH_ID)
+    dataset = metrica.load_open_data(match_id=MATCH_ID
+    , limit=200)
 
     # dataset = sportec.load_open_tracking_data(
     #     match_id="J03WMX",
