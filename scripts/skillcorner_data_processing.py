@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore")
 # Configuration
 # ==========================================
 KICK_SECTORS = 12
-POSSESSION_DIST_THR = 2.0
+POSSESSION_DIST_THR = 3.0
 POSSESSION_HYSTERESIS = 5
 KICK_EXPAND_FRAMES = 2
 MAX_SPEED_MS = 12.0
@@ -130,7 +130,7 @@ def _extract_player_ids(cols, prefix):
     return ids
 
 
-def process_match_data(match_id, opendata_root, sample_rate, limit, transform_metric):
+def process_match_data(match_id, opendata_root, sample_rate, limit, transform_metric, event_file, output_file):
     print(f"\n[1/5] Loading SkillCorner Match {match_id} Tracking Data...")
     df, pitch = build_tracking_wide_df(
         match_id=match_id,
@@ -156,7 +156,8 @@ def process_match_data(match_id, opendata_root, sample_rate, limit, transform_me
     project_root = os.path.dirname(script_dir)
     data_dir = os.path.join(project_root, "data")
 
-    event_file = os.path.join(data_dir, f"skillcorner_match{match_id}_inferred_events.csv")
+    if not event_file:
+        event_file = os.path.join(data_dir, f"skillcorner_match{match_id}_inferred_events.csv")
     if not os.path.exists(event_file):
         raise FileNotFoundError(f"Event file {event_file} not found! Please run skillcorner_track2event.py first.")
     df_events = pd.read_csv(event_file)
@@ -223,7 +224,7 @@ def process_match_data(match_id, opendata_root, sample_rate, limit, transform_me
     away_allocator = SlotAllocator(df_smooth.iloc[0], away_ids_all, "away")
     possession_manager = PossessionManager()
 
-    valid_indices = df_smooth.index[:-max(lookahead_frames, future_pass_frames)]
+    valid_indices = df_smooth.index
     filtered_count = 0
     dropped_speed_frames = 0
     clipped_vectors = 0
@@ -369,15 +370,15 @@ def process_match_data(match_id, opendata_root, sample_rate, limit, transform_me
                 py = row_raw.get(f"{team_prefix}_{pid}_y", np.nan)
                 if pd.isna(px) or pd.isna(py):
                     continue
-                dist = np.sqrt((px - ball_x) ** 2 + (py - ball_y) ** 2)
-                if dist > POSSESSION_DIST_THR:
-                    continue
-
                 pass_flag = 1
                 passer_slot = slot_idx
 
-                future_row = df_smooth.loc[fid + future_pass_frames]
-                if pd.notna(future_row["ball_x"]):
+                future_pos = i + future_pass_frames
+                if future_pos < len(df_smooth):
+                    future_row = df_smooth.iloc[future_pos]
+                else:
+                    future_row = None
+                if future_row is not None and pd.notna(future_row["ball_x"]):
                     dx = future_row["ball_x"] - row_raw["ball_x"]
                     dy = future_row["ball_y"] - row_raw["ball_y"]
                     pass_dir = int(get_kick_sector(norm_vel(dx), norm_vel(dy), KICK_SECTORS))
@@ -410,7 +411,8 @@ def process_match_data(match_id, opendata_root, sample_rate, limit, transform_me
     print(f"   Pass Frames: {int(pass_flag_array.sum())}")
 
     os.makedirs(data_dir, exist_ok=True)
-    output_file = os.path.join(data_dir, f"skillcorner_match{match_id}_train_attacker_centric.npz")
+    if not output_file:
+        output_file = os.path.join(data_dir, f"skillcorner_match{match_id}_train_attacker_centric.npz")
     np.savez_compressed(
         output_file,
         obs=obs_array,
@@ -431,6 +433,8 @@ if __name__ == "__main__":
     parser.add_argument("--sample_rate", type=float, default=1 / 10)
     parser.add_argument("--opendata_root", type=str, default="")
     parser.add_argument("--no_transform", action="store_true")
+    parser.add_argument("--event_file", type=str, default="", help="Override inferred events CSV path.")
+    parser.add_argument("--output", type=str, default="", help="Override output npz path.")
     args = parser.parse_args()
 
     opendata_root = resolve_opendata_root(args.opendata_root)
@@ -440,4 +444,6 @@ if __name__ == "__main__":
         sample_rate=args.sample_rate,
         limit=args.limit,
         transform_metric=(not args.no_transform),
+        event_file=args.event_file,
+        output_file=args.output,
     )

@@ -5,24 +5,31 @@ import os
 import glob  # [新增] 用于查找文件
 
 class SoccerDataset(Dataset):
-    def __init__(self, data_path_or_dir, obs_history=1):
+    def __init__(self, data_path_or_dir=None, obs_history=1, file_paths=None):
         """
         data_path_or_dir: 可以是单个 .npz 文件路径，也可以是包含多个 .npz 文件的文件夹路径
         """
         self.obs_history = max(1, int(obs_history))
         self.file_paths = []
         
-        # 1. 智能判断：是文件夹还是文件？
-        if os.path.isdir(data_path_or_dir):
-            # 如果是文件夹，查找里面所有的 .npz 文件
-            # 这里的 **/*.npz 可以根据需要调整，目前假设都在根目录下
-            self.file_paths = glob.glob(os.path.join(data_path_or_dir, "*.npz"))
-            self.file_paths.sort() # 排序，保证每次加载顺序一致
-        elif os.path.isfile(data_path_or_dir):
-            # 如果是单个文件
-            self.file_paths = [data_path_or_dir]
+        if file_paths is not None:
+            # 显式传入文件列表
+            self.file_paths = list(file_paths)
+            self.file_paths.sort()
         else:
-            raise ValueError(f"路径不存在或无效: {data_path_or_dir}")
+            # 1. 智能判断：是文件夹还是文件？
+            if data_path_or_dir is None:
+                raise ValueError("data_path_or_dir 不能为空")
+            if os.path.isdir(data_path_or_dir):
+                # 如果是文件夹，查找里面所有的 .npz 文件
+                # 这里的 **/*.npz 可以根据需要调整，目前假设都在根目录下
+                self.file_paths = glob.glob(os.path.join(data_path_or_dir, "*.npz"))
+                self.file_paths.sort() # 排序，保证每次加载顺序一致
+            elif os.path.isfile(data_path_or_dir):
+                # 如果是单个文件
+                self.file_paths = [data_path_or_dir]
+            else:
+                raise ValueError(f"路径不存在或无效: {data_path_or_dir}")
             
         if not self.file_paths:
             raise FileNotFoundError(f"在 {data_path_or_dir} 中未找到任何 .npz 数据文件")

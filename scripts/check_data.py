@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -10,7 +11,7 @@ import os
 FILE_NAME = "data/metrica_match2_train_attacker_centric.npz" # 确保文件名对上
 START_FRAME = 0     # <--- 强制从第 0 帧开始
 NUM_FRAMES = 2000    # <--- 强制画 1000 帧
-FPS = 25             
+FPS = 10            
 VEL_SCALE = 5.0      
 KICK_SECTORS = 12    
 PRINT_PASS_LIST = True
@@ -86,7 +87,20 @@ def print_pass_events(pass_flag, passer_id=None, receiver_id=None, pass_dir=None
         pdir = int(pass_dir[i]) if pass_dir is not None else -1
         print(f"  frame {start}-{end}: passer={passer}, receiver={receiver}, dir={pdir}")
 
-def visualize_sequence(obs, acts, start_f, length, pass_flag=None, passer_id=None, pass_dir=None, dt=0.04, output_file="output/match1_frames_0_1000.gif"):
+def visualize_sequence(
+    obs,
+    acts,
+    start_f,
+    length,
+    pass_flag=None,
+    passer_id=None,
+    pass_dir=None,
+    dt=0.04,
+    output_file="output/match_frames.gif",
+    fps=FPS,
+    vel_scale=VEL_SCALE,
+    match_label="Match",
+):
     print(f"\n{'='*40}")
     print(f" GENERATING VISUALIZATION: Frames {start_f} to {start_f+length}")
     print(f"{'='*40}")
@@ -115,7 +129,7 @@ def visualize_sequence(obs, acts, start_f, length, pass_flag=None, passer_id=Non
         
         # 显示当前的绝对帧号
         current_abs_frame = start_f + frame_idx
-        ax.set_title(f"Match 2 | Frame: {current_abs_frame} | (Normalized Space)")
+        ax.set_title(f"{match_label} | Frame: {current_abs_frame} | (Normalized Space)")
         
         # 2. 画正方形球场边框
         ax.add_patch(Rectangle((-1, -1), 2, 2, fill=False, color='gray', linewidth=2))
@@ -158,7 +172,7 @@ def visualize_sequence(obs, acts, start_f, length, pass_flag=None, passer_id=Non
                 # acts 是 m/s，因此可视化用位移 = v * dt
                 disp_x, disp_y = vx * dt, vy * dt
                 if abs(disp_x) > 0.001 or abs(disp_y) > 0.001:
-                    ax.arrow(px, py, disp_x*VEL_SCALE, disp_y*VEL_SCALE, 
+                    ax.arrow(px, py, disp_x*vel_scale, disp_y*vel_scale, 
                              head_width=0.015, head_length=0.015, fc='k', ec='k', alpha=0.3)
 
                 # 传球事件（新格式）
@@ -170,18 +184,45 @@ def visualize_sequence(obs, acts, start_f, length, pass_flag=None, passer_id=Non
                              head_width=0.04, head_length=0.04, fc='red', ec='red', width=0.01, zorder=20)
                     ax.text(px, py-0.08, f"P:{int(current_pass_dir)}", color='red', fontsize=9, fontweight='bold', ha='center')
 
-    ani = animation.FuncAnimation(fig, update, frames=real_length, interval=1000/FPS)
+    ani = animation.FuncAnimation(fig, update, frames=real_length, interval=1000/fps)
     
     print(f"Saving 1000 frames to {output_file} ... (This may take a minute)")
     os.makedirs("output", exist_ok=True)
-    ani.save(output_file, writer='pillow', fps=FPS)
+    ani.save(output_file, writer='pillow', fps=fps)
     print("\nDone!")
 
 if __name__ == "__main__":
-    if not os.path.exists(FILE_NAME):
-        print(f"File {FILE_NAME} not found!")
+    parser = argparse.ArgumentParser(description="Visualize and sanity-check processed datasets.")
+    parser.add_argument("--match_id", type=int, default=None, help="Metrica match id (1/2). Overrides --file.")
+    parser.add_argument("--file", type=str, default=None, help="Path to .npz file. If set, overrides --match_id.")
+    parser.add_argument("--start_frame", type=int, default=START_FRAME)
+    parser.add_argument("--num_frames", type=int, default=NUM_FRAMES)
+    parser.add_argument("--fps", type=int, default=FPS)
+    parser.add_argument("--vel_scale", type=float, default=VEL_SCALE)
+    parser.add_argument("--output", type=str, default=None, help="Output GIF path.")
+    args = parser.parse_args()
+
+    if args.file:
+        file_name = args.file
+        match_label = os.path.basename(args.file)
+    elif args.match_id is not None:
+        file_name = f"data/metrica_match{args.match_id}_train_attacker_centric.npz"
+        match_label = f"Match {args.match_id}"
     else:
-        data = np.load(FILE_NAME)
+        file_name = FILE_NAME
+        match_label = "Match"
+
+    if args.output:
+        output_file = args.output
+    else:
+        start = args.start_frame
+        end = args.start_frame + args.num_frames
+        output_file = os.path.join("output", f"{match_label.replace(' ', '_').lower()}_frames_{start}_{end}.gif")
+
+    if not os.path.exists(file_name):
+        print(f"File {file_name} not found!")
+    else:
+        data = np.load(file_name)
         obs = data['obs']
         if 'act_move' in data:
             acts = data['act_move']
@@ -193,12 +234,25 @@ if __name__ == "__main__":
         passer_id = data['passer_id'] if 'passer_id' in data else None
         pass_dir = data['pass_dir'] if 'pass_dir' in data else None
         receiver_id = data['receiver_id'] if 'receiver_id' in data else None
-        dt = float(data['dt']) if 'dt' in data else (0.1 if 'skillcorner' in FILE_NAME else 0.04)
-        
+        dt = float(data['dt']) if 'dt' in data else (0.1 if 'skillcorner' in file_name else 0.04)
+
         if check_stats(obs, acts, pass_flag):
-            visualize_sequence(obs, acts, START_FRAME, NUM_FRAMES, pass_flag, passer_id, pass_dir, dt=dt)
+            visualize_sequence(
+                obs,
+                acts,
+                args.start_frame,
+                args.num_frames,
+                pass_flag,
+                passer_id,
+                pass_dir,
+                dt=dt,
+                output_file=output_file,
+                fps=args.fps,
+                vel_scale=args.vel_scale,
+                match_label=match_label,
+            )
             if PRINT_PASS_LIST:
                 if PRINT_PASS_RANGE_ONLY:
-                    print_pass_events(pass_flag, passer_id, receiver_id, pass_dir, START_FRAME, START_FRAME + NUM_FRAMES)
+                    print_pass_events(pass_flag, passer_id, receiver_id, pass_dir, args.start_frame, args.start_frame + args.num_frames)
                 else:
                     print_pass_events(pass_flag, passer_id, receiver_id, pass_dir)

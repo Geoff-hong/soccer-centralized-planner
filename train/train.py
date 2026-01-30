@@ -22,17 +22,21 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 # ===========================
 CONFIG = {
     "project_name": "soccer-behavior-cloning",
-    "run_name": "transformer_pass_global_v1",
+    "run_name": "transformer_pass_global_skillcorner10",
     
     # Paths
-    "data_path": os.path.join(PROJECT_ROOT, "data"),
+    "data_path": os.path.join(PROJECT_ROOT, "data", "skillcorner_processed", "npz"),
     "save_dir": os.path.join(PROJECT_ROOT, "checkpoints"),
     
     # Training
-    "epochs": 100,
-    "batch_size": 128,
-    "lr": 2e-4,           # 稍微调高一点初始 LR
+    "epochs": 50,
+    "batch_size": 256,
+    "lr": 2e-4,
     "weight_decay": 1e-4,
+    "val_ratio": 0.1,
+    "seed": 42,
+    "split_by_file": True,
+    "use_weighted_sampler": False,
     
     # Model
     "d_model": 128,
@@ -42,7 +46,8 @@ CONFIG = {
     "obs_history": 5,     # 堆叠过去 K 帧
     
     # Loss Weights (移动为主，传球为辅)
-    "pos_weight": 2.0,     # pass_or_not 的正例权重
+    "pos_weight": 2.0,     # pass_or_not 的正例权重（auto_pos_weight=False 时生效）
+    "auto_pos_weight": True,
     "lambda_move": 1.0,
     "lambda_pass": 0.3,
     "lambda_passer": 0.3,
@@ -53,7 +58,7 @@ CONFIG = {
     
     # Passer Mask
     "passer_topk": 3,         # 只在离球最近的 K 人里训练 passer_id
-    "trigger_dist_thr": 2.0,  # 用于距离计算的阈值
+    "trigger_dist_thr": 3.0,  # 用于距离计算的阈值（与数据处理对齐）
 
     # Scheduler
     "patience": 15        # 【关键修改】增加耐心值
@@ -86,28 +91,34 @@ def train():
     print(f"Training on {device}")
 
     # 2. Data & Sampler Setup
-    full_dataset = SoccerDataset(config.data_path, obs_history=config.obs_history)
-    
-    # Split
-    val_size = int(len(full_dataset) * 0.1)
-    train_size = len(full_dataset) - val_size
-    train_set, val_set = random_split(full_dataset, [train_size, val_size])
-    
-    # --- 构建 WeightedRandomSampler ---
-    print("Computing Sampler Weights (Solving Class Imbalance)...")
-    
-    # 获取整个数据集的权重
-    all_weights = full_dataset.get_sample_weights() 
-    
-    # 提取训练集对应的权重
-    train_indices = train_set.indices
-    train_weights = torch.as_tensor(all_weights[train_indices], dtype=torch.double)
-    
-    # 创建采样器 (replacement=True 允许重复采样)
-    sampler = WeightedRandomSampler(weights=train_weights, num_samples=len(train_weights), replacement=True)
-    
-    # DataLoader
-    train_loader = DataLoader(train_set, batch_size=config.batch_size, sampler=sampler, shuffle=False, num_workers=4, pin_memory=True)
+    if config.split_by_file and os.path.isdir(config.data_path):
+        # 按比赛文件拆分，避免泄露
+        npz_files = [os.path.join(config.data_path, f) for f in os.listdir(config.data_path) if f.endswith(".npz")]
+        npz_files.sort()
+        if not npz_files:
+            raise FileNotFoundError(f"No npz files found in {config.data_path}")
+        rng = np.random.default_rng(config.seed)
+        rng.shuffle(npz_files)
+        val_count = max(1, int(len(npz_files) * config.val_ratio))
+        val_files = npz_files[:val_count]
+        train_files = npz_files[val_count:]
+        print(f"Split by file: train={len(train_files)} val={len(val_files)}")
+        train_set = SoccerDataset(obs_history=config.obs_history, file_paths=train_files)
+        val_set = SoccerDataset(obs_history=config.obs_history, file_paths=val_files)
+    else:
+        full_dataset = SoccerDataset(config.data_path, obs_history=config.obs_history)
+        val_size = int(len(full_dataset) * config.val_ratio)
+        train_size = len(full_dataset) - val_size
+        train_set, val_set = random_split(full_dataset, [train_size, val_size])
+
+    if config.use_weighted_sampler:
+        print("Computing Sampler Weights (Solving Class Imbalance)...")
+        train_weights = train_set.get_sample_weights()
+        sampler = WeightedRandomSampler(weights=train_weights, num_samples=len(train_weights), replacement=True)
+        train_loader = DataLoader(train_set, batch_size=config.batch_size, sampler=sampler, shuffle=False, num_workers=4, pin_memory=True)
+    else:
+        train_loader = DataLoader(train_set, batch_size=config.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+
     val_loader = DataLoader(val_set, batch_size=config.batch_size, shuffle=False, num_workers=4)
 
     # 3. Model
@@ -128,7 +139,16 @@ def train():
 
     # Losses
     criterion_mse = nn.MSELoss()
-    pass_pos_weight = torch.tensor([config.pos_weight]).to(device)
+    # 自动计算 pos_weight（负/正比），否则使用配置值
+    if config.auto_pos_weight:
+        n_kicks = train_set.n_kicks
+        n_total = train_set.total_frames
+        n_no = max(n_total - n_kicks, 1)
+        pos_weight_val = float(n_no / max(n_kicks, 1))
+    else:
+        pos_weight_val = config.pos_weight
+    pass_pos_weight = torch.tensor([pos_weight_val]).to(device)
+    print(f"Using pos_weight for pass_or_not: {pos_weight_val:.3f}")
     criterion_bce = nn.BCEWithLogitsLoss(pos_weight=pass_pos_weight)
     criterion_ce = nn.CrossEntropyLoss()
 

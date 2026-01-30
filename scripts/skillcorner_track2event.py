@@ -17,10 +17,11 @@ warnings.filterwarnings("ignore")
 # ============================
 # Parameters for tracking-based inference
 # ============================
-POSSESSION_DIST = 2.0
-MIN_POSSESSION_FRAMES = 2
+POSSESSION_DIST = 3.0
+MIN_POSSESSION_FRAMES = 1
 MAX_FLIGHT_DURATION = 150
-MAX_DEAD_BALL_RATIO = 0.5
+MAX_DEAD_BALL_RATIO = 0.8
+GAP_FILL_FRAMES = 10
 
 
 def _extract_player_ids(cols, prefix):
@@ -68,7 +69,7 @@ def generate_event_data_from_tracking(tracking_df):
     possessor_array[has_possession_mask] = min_dist_idx[has_possession_mask]
 
     possessor_series = pd.Series(possessor_array)
-    possessor_filled = possessor_series.replace(-1, np.nan).ffill(limit=5).fillna(-1).astype(int)
+    possessor_filled = possessor_series.replace(-1, np.nan).ffill(limit=GAP_FILL_FRAMES).fillna(-1).astype(int)
     possessor_list = possessor_filled.tolist()
 
     segments = []

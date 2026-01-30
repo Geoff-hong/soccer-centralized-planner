@@ -13,7 +13,6 @@ warnings.filterwarnings('ignore')
 # ==========================================
 KICK_SECTORS = 12       
 POSSESSION_DIST_THR = 3.0   # 与 track2event 对齐
-PASSER_DIST_THR = 3.0       # 传球人离球距离阈值
 POSSESSION_HYSTERESIS = 5   
 LOOKAHEAD_FRAMES = 10   
 DT = 0.04               
@@ -243,6 +242,8 @@ def process_match_data(match_id):
     
     # 统计被过滤的帧数
     filtered_count = 0
+    filtered_ball_nan = 0
+    filtered_ball_oob = 0
     total_count = 0
 
     for i, fid in enumerate(valid_indices):
@@ -250,6 +251,9 @@ def process_match_data(match_id):
         
         row_raw = df_smooth.loc[fid]
         row_vel = df_vel.loc[fid]
+
+        # 预读取事件（用于必要时纠正持球方）
+        kick_info_list = kick_events.get(fid, [])
         
         # =========================================================
         # [关键修改] 数据清洗与过滤
@@ -259,6 +263,7 @@ def process_match_data(match_id):
         # 1. 检查 NaN (球没被追踪到)
         if pd.isna(ball_x) or pd.isna(ball_y):
             filtered_count += 1
+            filtered_ball_nan += 1
             continue
             
         # 2. 检查球是否在场内 (或者稍微有一点点宽容度，比如角球区)
@@ -266,6 +271,7 @@ def process_match_data(match_id):
         # 我们允许 +/- 2米的误差，防止角球或边线球被误删
         if not (-2.0 <= ball_x <= 107.0 and -2.0 <= ball_y <= 70.0):
             filtered_count += 1
+            filtered_ball_oob += 1
             continue
             
         total_count += 1
@@ -273,9 +279,6 @@ def process_match_data(match_id):
 
         period = row_raw['period_id']
         
-        # A. 预读取事件（用于必要时纠正持球方）
-        kick_info_list = kick_events.get(fid, [])
-
         # B. 确定谁在进攻
         attacking_team = possession_manager.update(row_raw, home_ids_all, away_ids_all)
         if kick_info_list:
@@ -393,9 +396,6 @@ def process_match_data(match_id):
                 py = row_raw[f'{team_prefix}_{pid}_y']
                 if pd.isna(px) or pd.isna(py):
                     continue
-                dist = np.sqrt((px - ball_x)**2 + (py - ball_y)**2)
-                if dist > PASSER_DIST_THR:
-                    continue
 
                 pass_flag = 1
                 passer_slot = slot_idx
@@ -406,7 +406,6 @@ def process_match_data(match_id):
                     dx = future_row['ball_x'] - row_raw['ball_x']
                     dy = future_row['ball_y'] - row_raw['ball_y']
                     pass_dir = int(get_kick_sector(norm_vel(dx), norm_vel(dy), KICK_SECTORS))
-
                 # 接球人：如果传球方一致，映射到当前 slots
                 if kick_info['to_team'] == attacking_team:
                     to_pid = kick_info['to_pid']
@@ -430,6 +429,8 @@ def process_match_data(match_id):
     print(f"\n[5/5] Done. Match {match_id}")
     print(f"   Total Valid Frames: {total_count}")
     print(f"   Filtered Frames: {filtered_count} (NaN or Out-of-Bounds)")
+    print(f"     - Ball NaN: {filtered_ball_nan}")
+    print(f"     - Ball OOB: {filtered_ball_oob}")
     print(f"   Obs Shape: {obs_array.shape}")
     print(f"   Move Shape: {move_array.shape}")
     print(f"   Pass Frames: {int(pass_flag_array.sum())}")
@@ -450,4 +451,9 @@ def process_match_data(match_id):
     print(f"   Saved to {output_file}")
 
 if __name__ == "__main__":
-    process_match_data(match_id=2)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Process Metrica match into attacker-centric dataset.")
+    parser.add_argument("--match_id", type=int, default=2, help="Metrica match id (default: 2)")
+    args = parser.parse_args()
+    process_match_data(match_id=args.match_id)

@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import pandas as pd
 from kloppy import metrica
@@ -160,11 +161,10 @@ def generate_event_data_from_tracking(tracking_df):
     print(f"Segments: {len(segments)} | Events: {len(df_out)} | skip_short={skip_short} skip_long={skip_long} skip_dead={skip_dead} skip_dribble={skip_dribble}")
     return df_out
 
-if __name__ == "__main__":
-    match_id = 2
+def process_match(match_id):
     print(f"Loading Match {match_id}...")
     dataset = metrica.load_open_data(match_id=match_id)
-    
+
     from kloppy.domain import Dimension, MetricPitchDimensions
     # 确保坐标系一致
     try:
@@ -178,21 +178,28 @@ if __name__ == "__main__":
             x_dim=Dimension(min=0, max=105),
             y_dim=Dimension(min=0, max=68)
         ))
-    
+
     df_tracking = dataset.to_df()
     df_events = generate_event_data_from_tracking(df_tracking)
-    
+
     # 获取脚本所在目录的父目录（项目根目录）
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     data_dir = os.path.join(project_root, "data")
-    
+
     os.makedirs(data_dir, exist_ok=True)
     final_output_file = os.path.join(data_dir, f"metrica_match{match_id}_inferred_events.csv")
-    
+
     if not df_events.empty:
         n_passes = len(df_events[(df_events['type'] == 'PASS') & (df_events['from_team'] == 'Home')])
         print(f"Found {n_passes} home passes (cleaned). Saving to {final_output_file}...")
         df_events.to_csv(final_output_file, index=False)
     else:
         print("No events generated!")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate inferred pass events from Metrica tracking data.")
+    parser.add_argument("--match_id", type=int, default=2, help="Metrica match id (default: 2)")
+    args = parser.parse_args()
+    process_match(args.match_id)
