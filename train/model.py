@@ -63,14 +63,7 @@ class SoccerPolicy(nn.Module):
             nn.Linear(d_model // 2, 1)
         )
 
-        # Head D: Pass Direction (12-class, Global)
-        self.head_dir = nn.Sequential(
-            nn.Linear(d_model, d_model // 2),
-            nn.ReLU(),
-            nn.Linear(d_model // 2, 12)
-        )
-
-        # Head E: Receiver ID (11-class)
+        # Head D: Receiver ID (11-class)
         self.head_receiver = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
             nn.ReLU(),
@@ -84,7 +77,6 @@ class SoccerPolicy(nn.Module):
             pred_vel: [Batch, 11, 2]
             pred_pass: [Batch, 1]
             pred_passer: [Batch, 11]
-            pred_dir: [Batch, 12]
             pred_receiver: [Batch, 11]
         """
         B, N, F = x.shape
@@ -107,7 +99,6 @@ class SoccerPolicy(nn.Module):
         pred_vel = self.head_move(teammate_feat)
         pred_pass = self.head_pass(global_feat)  # [B, 1]
         pred_passer = self.head_passer(teammate_feat).squeeze(-1)  # [B, 11]
-        pred_dir = self.head_dir(global_feat)  # [B, 12]
         pred_receiver = self.head_receiver(teammate_feat).squeeze(-1)  # [B, 11]
 
-        return pred_vel, pred_pass, pred_passer, pred_dir, pred_receiver
+        return pred_vel, pred_pass, pred_passer, pred_receiver
