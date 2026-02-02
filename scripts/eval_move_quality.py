@@ -15,6 +15,16 @@ sys.path.append(os.path.join(PROJECT_ROOT, "train"))
 from model import SoccerPolicy  # noqa: E402
 
 
+def _infer_move_horizon(state: Dict[str, torch.Tensor]) -> int:
+    for key in ("head_move.2.weight", "head_move.2.bias"):
+        if key in state:
+            out_dim = int(state[key].shape[0])
+            if out_dim % 2 == 0 and out_dim > 0:
+                return max(1, out_dim // 2)
+            return 1
+    return 1
+
+
 def _list_npz_files(path: str) -> List[str]:
     if os.path.isdir(path):
         files = glob.glob(os.path.join(path, "*.npz"))
@@ -164,15 +174,18 @@ def eval_files(
     dir_speed_thr: float,
     max_frames: int,
 ):
+    state = torch.load(checkpoint, map_location=device)
+    state_dict = state.get("model", state)
+    move_horizon = _infer_move_horizon(state_dict)
     model = SoccerPolicy(
         d_model=d_model,
         nhead=nhead,
         num_layers=num_layers,
         dropout=dropout,
         input_dim=3 * obs_history,
+        move_horizon=move_horizon,
     ).to(device)
-    state = torch.load(checkpoint, map_location=device)
-    missing, unexpected = model.load_state_dict(state, strict=False)
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
     if missing or unexpected:
         print(f"[Warn] load_state_dict mismatch. Missing={missing} Unexpected={unexpected}")
     model.eval()
@@ -205,11 +218,16 @@ def eval_files(
                 pred_vel, _, _, _ = model(batch)
                 preds.append(pred_vel.cpu().numpy())
         pred_vel = np.concatenate(preds, axis=0)
+        # If multi-step, use step-0 for one-step metrics (consistent with act_move)
+        if pred_vel.ndim == 4:
+            pred_vel_step0 = pred_vel[:, 0]
+        else:
+            pred_vel_step0 = pred_vel
 
-        metrics = _compute_metrics(pred_vel, move, speed_thr, dir_speed_thr)
+        metrics = _compute_metrics(pred_vel_step0, move, speed_thr, dir_speed_thr)
         base = _baseline_mse(move)
         pos = _to_metric_pos(obs)
-        ade, fde = _multistep_ade_fde(pred_vel, pos, dt, horizon)
+        ade, fde = _multistep_ade_fde(pred_vel_step0, pos, dt, horizon)
 
         n = move.shape[0] * move.shape[1]
         agg["count"] += n

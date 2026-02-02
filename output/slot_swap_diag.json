@@ -1,0 +1,762 @@
+[
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match1886347_dynamic_train_attacker_centric.npz",
+    "frames": 41895,
+    "swap_rate_mean": 0.0065121063116002735,
+    "swap_rate_max": 0.007160929966104931,
+    "self_dist_mean": 0.5170106100966936,
+    "nn_dist_mean": 0.36431137150498166,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.0071370601995512485,
+        "self_dist_mean": 0.5426757850162099,
+        "nn_dist_mean": 0.3634292209465827
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.006731274168138636,
+        "self_dist_mean": 0.5829311680629831,
+        "nn_dist_mean": 0.4182144237022801
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.007065450899890199,
+        "self_dist_mean": 0.5582330628986667,
+        "nn_dist_mean": 0.3986446667926281
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.0062777486036186565,
+        "self_dist_mean": 0.5218324120224025,
+        "nn_dist_mean": 0.3226758401824408
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.004773953310736621,
+        "self_dist_mean": 0.3129342104113435,
+        "nn_dist_mean": 0.22545821407792335
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.0065641858022628535,
+        "self_dist_mean": 0.4921987132452155,
+        "nn_dist_mean": 0.3526062319902035
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.006874492767460734,
+        "self_dist_mean": 0.5437546541816185,
+        "nn_dist_mean": 0.38451265428370457
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.007160929966104931,
+        "self_dist_mean": 0.5655344811303786,
+        "nn_dist_mean": 0.38698916150219953
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.006755143934692319,
+        "self_dist_mean": 0.4903888114589293,
+        "nn_dist_mean": 0.3544342291702502
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.00661192533537022,
+        "self_dist_mean": 0.5403042688168824,
+        "nn_dist_mean": 0.3859485810076626
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.005681004439776579,
+        "self_dist_mean": 0.536329143819,
+        "nn_dist_mean": 0.414511862898923
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match1899585_dynamic_train_attacker_centric.npz",
+    "frames": 39318,
+    "swap_rate_mean": 0.00732045125055782,
+    "swap_rate_max": 0.007833761477223592,
+    "self_dist_mean": 0.527141744441135,
+    "nn_dist_mean": 0.354821357403044,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.0071979042144619376,
+        "self_dist_mean": 0.5754272158213107,
+        "nn_dist_mean": 0.39152475000329345
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.0075539842816084645,
+        "self_dist_mean": 0.5930279036153185,
+        "nn_dist_mean": 0.4167672047475873
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.007426812829056133,
+        "self_dist_mean": 0.5680255141824307,
+        "nn_dist_mean": 0.408828044300974
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.006714652694763079,
+        "self_dist_mean": 0.48636766152868355,
+        "nn_dist_mean": 0.290565410509583
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.005799018236386296,
+        "self_dist_mean": 0.3408715203398623,
+        "nn_dist_mean": 0.22038028120294506
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.007732024315181728,
+        "self_dist_mean": 0.49330588313852186,
+        "nn_dist_mean": 0.3243600876147496
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.0071979042144619376,
+        "self_dist_mean": 0.5381678128881447,
+        "nn_dist_mean": 0.39391307325989866
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.007833761477223592,
+        "self_dist_mean": 0.5816792891305971,
+        "nn_dist_mean": 0.36311933060949975
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.007757458605692194,
+        "self_dist_mean": 0.5490849271741207,
+        "nn_dist_mean": 0.38385304768548
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.007732024315181728,
+        "self_dist_mean": 0.4590543089048102,
+        "nn_dist_mean": 0.307677790045171
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.0075794185721189304,
+        "self_dist_mean": 0.613547152128685,
+        "nn_dist_mean": 0.4020459114543019
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match1925299_dynamic_train_attacker_centric.npz",
+    "frames": 46302,
+    "swap_rate_mean": 0.006389023602474717,
+    "swap_rate_max": 0.006846504395153452,
+    "self_dist_mean": 0.4914976023268348,
+    "nn_dist_mean": 0.3469355392060968,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.006673721949849895,
+        "self_dist_mean": 0.5114266534275729,
+        "nn_dist_mean": 0.3621241567001851
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.005550636055376774,
+        "self_dist_mean": 0.36175385046719655,
+        "nn_dist_mean": 0.2378961170896283
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.006846504395153452,
+        "self_dist_mean": 0.5180465273359417,
+        "nn_dist_mean": 0.37365351665833396
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.0061985702252651135,
+        "self_dist_mean": 0.5142445539430142,
+        "nn_dist_mean": 0.37364024754386
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.005701820695017386,
+        "self_dist_mean": 0.3822155448123481,
+        "nn_dist_mean": 0.2539366530511949
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.00637135267056867,
+        "self_dist_mean": 0.5290949074542964,
+        "nn_dist_mean": 0.3967850447432243
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.006522537310209283,
+        "self_dist_mean": 0.4695922391556049,
+        "nn_dist_mean": 0.3291568064820429
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.006846504395153452,
+        "self_dist_mean": 0.5616773276350085,
+        "nn_dist_mean": 0.4035909787993269
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.0064793416988833934,
+        "self_dist_mean": 0.526894140109297,
+        "nn_dist_mean": 0.3489593112557704
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.006457743893220449,
+        "self_dist_mean": 0.5293435625999388,
+        "nn_dist_mean": 0.3944605606678916
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.006630526338524006,
+        "self_dist_mean": 0.5021843186549639,
+        "nn_dist_mean": 0.3420875382756064
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match1953632_dynamic_train_attacker_centric.npz",
+    "frames": 42264,
+    "swap_rate_mean": 0.005330258790732491,
+    "swap_rate_max": 0.006080969169249698,
+    "self_dist_mean": 0.43113956946120435,
+    "nn_dist_mean": 0.3130216231071755,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.006080969169249698,
+        "self_dist_mean": 0.4635866160327546,
+        "nn_dist_mean": 0.3338501444725046
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.005560419279275016,
+        "self_dist_mean": 0.45284183444813575,
+        "nn_dist_mean": 0.2997451009335107
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.00551309656200459,
+        "self_dist_mean": 0.4461565898254198,
+        "nn_dist_mean": 0.3305528240371335
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.005158176182476398,
+        "self_dist_mean": 0.4460393579339723,
+        "nn_dist_mean": 0.32352394669066176
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.00584435558289757,
+        "self_dist_mean": 0.47996338734227534,
+        "nn_dist_mean": 0.3359860330069525
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.004968885313394695,
+        "self_dist_mean": 0.4425520287849454,
+        "nn_dist_mean": 0.34389052321690716
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.005560419279275016,
+        "self_dist_mean": 0.4596162524033582,
+        "nn_dist_mean": 0.3421477243837962
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.0041643991197974585,
+        "self_dist_mean": 0.27952609609153856,
+        "nn_dist_mean": 0.21093388421970488
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.005749710148356718,
+        "self_dist_mean": 0.4678497076016377,
+        "nn_dist_mean": 0.3388052597478865
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.005418451127463739,
+        "self_dist_mean": 0.4445715680252364,
+        "nn_dist_mean": 0.3351138040106654
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.004613964933866502,
+        "self_dist_mean": 0.35983182558397336,
+        "nn_dist_mean": 0.24868860945920765
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match1996435_dynamic_train_attacker_centric.npz",
+    "frames": 42062,
+    "swap_rate_mean": 0.006585673188939873,
+    "swap_rate_max": 0.007489122940491191,
+    "self_dist_mean": 0.5067163779385401,
+    "nn_dist_mean": 0.35602967614760545,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.007251373005872423,
+        "self_dist_mean": 0.5352040935926925,
+        "nn_dist_mean": 0.35529169333340416
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.005824873398159815,
+        "self_dist_mean": 0.5115777660727521,
+        "nn_dist_mean": 0.3869834498358766
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.007037398064715532,
+        "self_dist_mean": 0.5321888604611626,
+        "nn_dist_mean": 0.3785035893411842
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.006347923254321105,
+        "self_dist_mean": 0.5348621093623284,
+        "nn_dist_mean": 0.4067197721385703
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.0066094481824017495,
+        "self_dist_mean": 0.5365573877940456,
+        "nn_dist_mean": 0.3755918937132029
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.0067520981431730106,
+        "self_dist_mean": 0.5642741058511602,
+        "nn_dist_mean": 0.4114458574368578
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.006324148260859228,
+        "self_dist_mean": 0.5370094386062292,
+        "nn_dist_mean": 0.39963342415646425
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.007489122940491191,
+        "self_dist_mean": 0.51177686581861,
+        "nn_dist_mean": 0.3411781427999261
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.006086398326240461,
+        "self_dist_mean": 0.45760756723651674,
+        "nn_dist_mean": 0.2999977198132114
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.005563348470079171,
+        "self_dist_mean": 0.3657486487601593,
+        "nn_dist_mean": 0.23759250004223773
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.007156273032024916,
+        "self_dist_mean": 0.4870733137682838,
+        "nn_dist_mean": 0.3233883950127243
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match2006229_dynamic_train_attacker_centric.npz",
+    "frames": 42924,
+    "swap_rate_mean": 0.006339046876753933,
+    "swap_rate_max": 0.007105747501339608,
+    "self_dist_mean": 0.4794892824615639,
+    "nn_dist_mean": 0.33104164475942094,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.006523309181557673,
+        "self_dist_mean": 0.48775284929959595,
+        "nn_dist_mean": 0.32556620190140123
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.007105747501339608,
+        "self_dist_mean": 0.45912653646155044,
+        "nn_dist_mean": 0.3196009483306458
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.005731193066654241,
+        "self_dist_mean": 0.4286963068425415,
+        "nn_dist_mean": 0.2650579167315298
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.0057544905994455185,
+        "self_dist_mean": 0.4812014630419437,
+        "nn_dist_mean": 0.36643415246088823
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.006779582042261725,
+        "self_dist_mean": 0.5303615737371727,
+        "nn_dist_mean": 0.3524538906650015
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.006430119050392563,
+        "self_dist_mean": 0.5043481557480648,
+        "nn_dist_mean": 0.3637900721954162
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.006989259837383221,
+        "self_dist_mean": 0.5145524613865788,
+        "nn_dist_mean": 0.36010486526788427
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.006593201779931506,
+        "self_dist_mean": 0.5048553332152784,
+        "nn_dist_mean": 0.3641236691447032
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.005172052279663584,
+        "self_dist_mean": 0.3118521035926014,
+        "nn_dist_mean": 0.2121177992616557
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.005964168394567015,
+        "self_dist_mean": 0.459271454163077,
+        "nn_dist_mean": 0.3247959054872576
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.006686391911096615,
+        "self_dist_mean": 0.5923638695887984,
+        "nn_dist_mean": 0.3874126709072472
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match2011166_dynamic_train_attacker_centric.npz",
+    "frames": 37040,
+    "swap_rate_mean": 0.007930216062185066,
+    "swap_rate_max": 0.008639542104268474,
+    "self_dist_mean": 0.5629868749288326,
+    "nn_dist_mean": 0.3957623356199891,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.007775587893841626,
+        "self_dist_mean": 0.5926978991235179,
+        "nn_dist_mean": 0.44827589977642834
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.008639542104268474,
+        "self_dist_mean": 0.6115725647257484,
+        "nn_dist_mean": 0.43687429694920393
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.008423553551661762,
+        "self_dist_mean": 0.5796045360041487,
+        "nn_dist_mean": 0.42346797283639304
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.006965630821566457,
+        "self_dist_mean": 0.5001293046198368,
+        "nn_dist_mean": 0.3081514384051932
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.008099570722751694,
+        "self_dist_mean": 0.581302880667094,
+        "nn_dist_mean": 0.3898505902449254
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.00818056642997921,
+        "self_dist_mean": 0.6314825238793306,
+        "nn_dist_mean": 0.439433886590428
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.00769459218661411,
+        "self_dist_mean": 0.5792236893136498,
+        "nn_dist_mean": 0.41760683670391463
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.007883582170144982,
+        "self_dist_mean": 0.5421981089069167,
+        "nn_dist_mean": 0.3785561137030621
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.006992629390642296,
+        "self_dist_mean": 0.385466469975599,
+        "nn_dist_mean": 0.24980460327456097
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.008396554982585923,
+        "self_dist_mean": 0.6137360081532502,
+        "nn_dist_mean": 0.4480134466846469
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.00818056642997921,
+        "self_dist_mean": 0.5754416388480663,
+        "nn_dist_mean": 0.4133506066511235
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match2013725_dynamic_train_attacker_centric.npz",
+    "frames": 43305,
+    "swap_rate_mean": 0.00691307122583679,
+    "swap_rate_max": 0.00773600591169407,
+    "self_dist_mean": 0.5181861039078067,
+    "nn_dist_mean": 0.3597979629598932,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.006442822833918345,
+        "self_dist_mean": 0.51096896475292,
+        "nn_dist_mean": 0.29533117079041504
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.007066321817845927,
+        "self_dist_mean": 0.5420613988445204,
+        "nn_dist_mean": 0.36937997984702076
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.0066737483835211525,
+        "self_dist_mean": 0.5002074946434673,
+        "nn_dist_mean": 0.3658742968624305
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.0062580823942360985,
+        "self_dist_mean": 0.5363561464748783,
+        "nn_dist_mean": 0.3975070765427346
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.007274154812488454,
+        "self_dist_mean": 0.5464575476081601,
+        "nn_dist_mean": 0.3673030275221946
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.00773600591169407,
+        "self_dist_mean": 0.5509892162122192,
+        "nn_dist_mean": 0.3912228892212131
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.007227969702567892,
+        "self_dist_mean": 0.530280401772634,
+        "nn_dist_mean": 0.36778287435633605
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.00715869203768705,
+        "self_dist_mean": 0.5329012818600455,
+        "nn_dist_mean": 0.38020786858806843
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.00715869203768705,
+        "self_dist_mean": 0.53222820775637,
+        "nn_dist_mean": 0.3795363102059904
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.007204877147607611,
+        "self_dist_mean": 0.5429296271065389,
+        "nn_dist_mean": 0.3900195151440054
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.005842416404951044,
+        "self_dist_mean": 0.37466685595411947,
+        "nn_dist_mean": 0.253612583478416
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match2015213_dynamic_train_attacker_centric.npz",
+    "frames": 46565,
+    "swap_rate_mean": 0.007217827271946334,
+    "swap_rate_max": 0.007774246198780173,
+    "self_dist_mean": 0.5299527929149032,
+    "nn_dist_mean": 0.3631955258981505,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.006550124559745726,
+        "self_dist_mean": 0.4871748045891187,
+        "nn_dist_mean": 0.2972412316183304
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.007538012198264754,
+        "self_dist_mean": 0.5509919888097896,
+        "nn_dist_mean": 0.378074124127002
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.0076239154711794516,
+        "self_dist_mean": 0.5610365493353587,
+        "nn_dist_mean": 0.3951681196427464
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.006421269650373679,
+        "self_dist_mean": 0.5367793826912637,
+        "nn_dist_mean": 0.409534041407486
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.007666867107636801,
+        "self_dist_mean": 0.5570344056518909,
+        "nn_dist_mean": 0.3853748170598793
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.006657503650889099,
+        "self_dist_mean": 0.4409892130836238,
+        "nn_dist_mean": 0.2695853815001253
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.007774246198780173,
+        "self_dist_mean": 0.5339747897775607,
+        "nn_dist_mean": 0.3612735880912568
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.006958165106090542,
+        "self_dist_mean": 0.5291597463171245,
+        "nn_dist_mean": 0.38882255373447455
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.007452108925350056,
+        "self_dist_mean": 0.5618647446263586,
+        "nn_dist_mean": 0.38478407448519747
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.007387681470664032,
+        "self_dist_mean": 0.5379618185652489,
+        "nn_dist_mean": 0.35666658039687277
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.007366205652435358,
+        "self_dist_mean": 0.5325132786165973,
+        "nn_dist_mean": 0.3686262728162846
+      }
+    ]
+  },
+  {
+    "file": "data/skillcorner_processed/npz/skillcorner_match2017461_dynamic_train_attacker_centric.npz",
+    "frames": 38033,
+    "swap_rate_mean": 0.007900045894366466,
+    "swap_rate_max": 0.00865061001262095,
+    "self_dist_mean": 0.573211767678887,
+    "nn_dist_mean": 0.39011688237161307,
+    "per_slot": [
+      {
+        "slot": 0,
+        "swap_rate": 0.008335086243163651,
+        "self_dist_mean": 0.6111298355508777,
+        "nn_dist_mean": 0.4264777904582465
+      },
+      {
+        "slot": 1,
+        "swap_rate": 0.007704038704249053,
+        "self_dist_mean": 0.5947241850158281,
+        "nn_dist_mean": 0.43748548341447097
+      },
+      {
+        "slot": 2,
+        "swap_rate": 0.008519141775347076,
+        "self_dist_mean": 0.5993334104105742,
+        "nn_dist_mean": 0.4166437938164225
+      },
+      {
+        "slot": 3,
+        "swap_rate": 0.00865061001262095,
+        "self_dist_mean": 0.607045365522821,
+        "nn_dist_mean": 0.4272591772601808
+      },
+      {
+        "slot": 4,
+        "swap_rate": 0.00725704669751788,
+        "self_dist_mean": 0.5445220802389671,
+        "nn_dist_mean": 0.3093661311155565
+      },
+      {
+        "slot": 5,
+        "swap_rate": 0.008019562473706353,
+        "self_dist_mean": 0.5874807887960677,
+        "nn_dist_mean": 0.3933256233714674
+      },
+      {
+        "slot": 6,
+        "swap_rate": 0.007940681531342027,
+        "self_dist_mean": 0.5755657295299526,
+        "nn_dist_mean": 0.4008186138461484
+      },
+      {
+        "slot": 7,
+        "swap_rate": 0.006678586453512832,
+        "self_dist_mean": 0.43635049878017723,
+        "nn_dist_mean": 0.26912236529179034
+      },
+      {
+        "slot": 8,
+        "swap_rate": 0.008413967185527976,
+        "self_dist_mean": 0.516477995456277,
+        "nn_dist_mean": 0.3408445886227639
+      },
+      {
+        "slot": 9,
+        "swap_rate": 0.007888094236432478,
+        "self_dist_mean": 0.6108138596698763,
+        "nn_dist_mean": 0.4256161389747225
+      },
+      {
+        "slot": 10,
+        "swap_rate": 0.007493689524610854,
+        "self_dist_mean": 0.6218856954963399,
+        "nn_dist_mean": 0.4443259999159745
+      }
+    ]
+  }
+]

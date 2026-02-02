@@ -44,6 +44,7 @@ CONFIG = {
     "num_layers": 3,
     "dropout": 0.3,       # 【关键修改】增加 Dropout 防止过拟合
     "obs_history": 5,     # 堆叠过去 K 帧
+    "move_horizon": 10,   # multi-step 预测未来 K 帧速度
     
     # Loss Weights (移动为主，传球为辅)
     "pos_weight": 2.0,     # pass_or_not 的正例权重（auto_pos_weight=False 时生效）
@@ -56,6 +57,11 @@ CONFIG = {
     "move_cos_weight": 0.5,     # 方向一致性权重
     "move_mag_weight": 0.5,     # 速度幅值误差权重
     "move_dir_speed_thr": 0.5,  # 仅在目标速度>阈值时计算方向损失
+    "move_pos_ade_weight": 0.5,  # 位置 ADE 权重 (由速度积分)
+    "move_pos_fde_weight": 0.5,  # 位置 FDE 权重 (由速度积分)
+    "move_pos_scale_x": 52.5,    # normalized x -> meters
+    "move_pos_scale_y": 34.0,    # normalized y -> meters
+    "use_move_residual": True,   # 预测残差速度 (对 last-frame velocity)
     "lambda_pass": 0.0,
     "lambda_passer": 0.0,
     "lambda_receiver": 0.0,
@@ -87,35 +93,140 @@ def metrics_from_logits(logits, targets, prob_threshold=0.5):
     f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
     return precision, recall, f1, tp, fp, fn
 
-def compute_move_loss(pred_vel, move, config):
+def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
     """
-    Move loss = weighted vector MSE + mag error + direction cosine penalty.
-    pred_vel/move: [B, 11, 2]
+    Rollout-based multi-step move loss.
+    Uses model autoregressively to predict next-step velocities, updates attacker positions,
+    and accumulates multi-step velocity + position (ADE/FDE) losses.
     """
-    # Vector MSE (speed-weighted)
-    speed_t = torch.norm(move, dim=2)  # [B, 11]
-    weight = torch.ones_like(speed_t)
-    weight = weight + (speed_t > config.move_speed_thr).float() * config.move_high_weight
-    vec_err = (pred_vel - move) ** 2
-    vec_mse = (vec_err.sum(dim=2) * weight).mean()
+    if move_seq.dim() == 3:
+        move_seq = move_seq.unsqueeze(1)
 
-    # Magnitude loss
-    speed_p = torch.norm(pred_vel, dim=2)
-    mag_err = torch.abs(speed_p - speed_t)
-    mag_loss = mag_err.mean()
+    bsz, k_steps, _, _ = move_seq.shape
+    device = move_seq.device
 
-    # Direction cosine loss (magnitude-independent, mask by target speed)
-    pred_norm = pred_vel / (speed_p.unsqueeze(-1) + 1e-8)
-    target_norm = move / (speed_t.unsqueeze(-1) + 1e-8)
-    cos = (pred_norm * target_norm).sum(dim=2).clamp(-1.0, 1.0)
-    dir_mask = (speed_t > config.move_dir_speed_thr)
-    if dir_mask.any():
-        dir_loss = (1.0 - cos[dir_mask]).mean()
+    if move_mask is None:
+        move_mask = torch.ones((bsz, k_steps), device=device, dtype=move_seq.dtype)
     else:
-        dir_loss = torch.tensor(0.0, device=pred_vel.device)
+        move_mask = move_mask.to(device).float()
 
-    total = vec_mse + config.move_mag_weight * mag_loss + config.move_cos_weight * dir_loss
-    return total, vec_mse, mag_loss, dir_loss
+    if dt_seq is None:
+        dt_seq = torch.ones((bsz, k_steps), device=device, dtype=move_seq.dtype)
+    else:
+        dt_seq = dt_seq.to(device)
+
+    step_mask = move_mask.unsqueeze(-1)  # [B, K, 1]
+
+    hist = obs.shape[-1] // 3
+    obs_roll = obs.to(device)
+
+    scale = torch.tensor([config.move_pos_scale_x, config.move_pos_scale_y], device=device)
+    pos0_norm = obs_roll[:, :11, (hist - 1) * 3 : (hist - 1) * 3 + 2]
+    pos0_m = pos0_norm * scale
+    pos_curr_m = pos0_m.clone()
+
+    dt = dt_seq.unsqueeze(-1).unsqueeze(-1)  # [B, K, 1, 1]
+    tgt_pos_abs = pos0_m.unsqueeze(1) + torch.cumsum(move_seq * dt, dim=1)
+
+    vec_mse_sum = torch.tensor(0.0, device=device)
+    mag_sum = torch.tensor(0.0, device=device)
+    dir_sum = torch.tensor(0.0, device=device)
+    dir_denom = torch.tensor(0.0, device=device)
+
+    pred_pos_steps = []
+
+    def _base_vel_from_obs(obs_in, dt_step):
+        if hist < 2:
+            return None
+        pos_last = obs_in[:, :11, (hist - 1) * 3 : (hist - 1) * 3 + 2]
+        pos_prev = obs_in[:, :11, (hist - 2) * 3 : (hist - 2) * 3 + 2]
+        pos_last_m = pos_last * scale
+        pos_prev_m = pos_prev * scale
+        return (pos_last_m - pos_prev_m) / (dt_step + 1e-8)
+
+    for k in range(k_steps):
+        pred_vel_k, _, _, _ = model(obs_roll)
+        if pred_vel_k.dim() == 3:
+            pred_vel_k = pred_vel_k.unsqueeze(1)
+        pred_step = pred_vel_k[:, 0]  # [B, 11, 2]
+
+        if getattr(config, "use_move_residual", False):
+            dt_k = dt_seq[:, k].unsqueeze(-1).unsqueeze(-1)
+            base_vel = _base_vel_from_obs(obs_roll, dt_k)
+            if base_vel is not None:
+                pred_step = pred_step + base_vel
+
+        speed_t = torch.norm(move_seq[:, k], dim=2)  # [B, 11]
+        speed_p = torch.norm(pred_step, dim=2)       # [B, 11]
+
+        high = (speed_t > config.move_speed_thr).float()
+        weight = (1.0 + high * config.move_high_weight) * move_mask[:, k : k + 1]
+        vec_err = (pred_step - move_seq[:, k]) ** 2
+        vec_mse_sum = vec_mse_sum + (vec_err.sum(dim=2) * weight).sum()
+
+        mag_sum = mag_sum + (torch.abs(speed_p - speed_t) * move_mask[:, k : k + 1]).sum()
+
+        pred_norm = pred_step / (speed_p.unsqueeze(-1) + 1e-8)
+        tgt_norm = move_seq[:, k] / (speed_t.unsqueeze(-1) + 1e-8)
+        cos = (pred_norm * tgt_norm).sum(dim=2).clamp(-1.0, 1.0)
+        dir_mask = (speed_t > config.move_dir_speed_thr).float() * move_mask[:, k : k + 1]
+        if dir_mask.sum() > 0:
+            dir_sum = dir_sum + ((1.0 - cos) * dir_mask).sum()
+            dir_denom = dir_denom + dir_mask.sum()
+
+        # Update attacker positions in meters
+        dt_k = dt_seq[:, k].unsqueeze(-1)  # [B, 1]
+        pos_curr_m = pos_curr_m + pred_step * dt_k.unsqueeze(-1)
+        pred_pos_steps.append(pos_curr_m)
+
+        # Roll obs: update attacker positions, keep defenders/ball fixed to last frame
+        last = obs_roll[:, :, (hist - 1) * 3 : (hist - 1) * 3 + 3]
+        def_pos = last[:, 11:22, 0:2]
+        ball_pos = last[:, 22:23, 0:2]
+
+        att_norm = pos_curr_m / scale
+        def_norm = def_pos
+        ball_norm = ball_pos
+
+        att_m = att_norm * scale
+        def_m = def_norm * scale
+        ball_m = ball_norm * scale
+
+        att_dist = torch.norm(att_m - ball_m, dim=2)
+        def_dist = torch.norm(def_m - ball_m, dim=2)
+        att_has = (att_dist < config.trigger_dist_thr).float()
+        def_has = (def_dist < config.trigger_dist_thr).float()
+
+        new_frame = torch.zeros((bsz, 23, 3), device=device, dtype=obs_roll.dtype)
+        new_frame[:, :11, 0:2] = att_norm
+        new_frame[:, :11, 2] = att_has
+        new_frame[:, 11:22, 0:2] = def_norm
+        new_frame[:, 11:22, 2] = def_has
+        new_frame[:, 22, 0:2] = ball_norm.squeeze(1)
+        new_frame[:, 22, 2] = 0.0
+
+        obs_roll = torch.cat([obs_roll[:, :, 3:], new_frame], dim=2)
+
+    vec_mse = vec_mse_sum / (step_mask.sum() + 1e-8)
+    mag_loss = mag_sum / (step_mask.sum() + 1e-8)
+    if dir_denom > 0:
+        dir_loss = dir_sum / (dir_denom + 1e-8)
+    else:
+        dir_loss = torch.tensor(0.0, device=device)
+
+    pred_pos_abs = torch.stack(pred_pos_steps, dim=1)  # [B, K, 11, 2]
+    pos_err = torch.norm(pred_pos_abs - tgt_pos_abs, dim=3)
+    ade = (pos_err * step_mask).sum() / (step_mask.sum() + 1e-8)
+    fde = (pos_err[:, -1] * step_mask[:, -1]).sum() / (step_mask[:, -1].sum() + 1e-8)
+
+    total = (
+        vec_mse
+        + config.move_mag_weight * mag_loss
+        + config.move_cos_weight * dir_loss
+        + config.move_pos_ade_weight * ade
+        + config.move_pos_fde_weight * fde
+    )
+    return total, vec_mse, mag_loss, dir_loss, ade, fde
 
 def train():
     # 1. Init WandB
@@ -144,10 +255,10 @@ def train():
         val_files = npz_files[:val_count]
         train_files = npz_files[val_count:]
         print(f"Split by file: train={len(train_files)} val={len(val_files)}")
-        train_set = SoccerDataset(obs_history=config.obs_history, file_paths=train_files)
-        val_set = SoccerDataset(obs_history=config.obs_history, file_paths=val_files)
+        train_set = SoccerDataset(obs_history=config.obs_history, move_horizon=config.move_horizon, file_paths=train_files)
+        val_set = SoccerDataset(obs_history=config.obs_history, move_horizon=config.move_horizon, file_paths=val_files)
     else:
-        full_dataset = SoccerDataset(config.data_path, obs_history=config.obs_history)
+        full_dataset = SoccerDataset(config.data_path, obs_history=config.obs_history, move_horizon=config.move_horizon)
         val_size = int(len(full_dataset) * config.val_ratio)
         train_size = len(full_dataset) - val_size
         train_set, val_set = random_split(full_dataset, [train_size, val_size])
@@ -168,7 +279,8 @@ def train():
         nhead=config.nhead,
         num_layers=config.num_layers,
         dropout=config.dropout,
-        input_dim=3 * config.obs_history
+        input_dim=3 * config.obs_history,
+        move_horizon=config.move_horizon
     ).to(device)
     
     wandb.watch(model, log="all", log_freq=100)
@@ -212,6 +324,8 @@ def train():
         log_loss_move_vec = []
         log_loss_move_mag = []
         log_loss_move_dir = []
+        log_loss_move_ade = []
+        log_loss_move_fde = []
         log_loss_pass = []
         log_loss_passer = []
         log_loss_receiver = []
@@ -219,9 +333,11 @@ def train():
         
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.epochs}")
         
-        for obs, move, pass_flag, passer_id, pass_dir, receiver_id in pbar:
+        for obs, move_seq, move_mask, dt_seq, pass_flag, passer_id, pass_dir, receiver_id in pbar:
             obs = obs.to(device)
-            move = move.to(device)
+            move_seq = move_seq.to(device)
+            move_mask = move_mask.to(device)
+            dt_seq = dt_seq.to(device)
             pass_flag = pass_flag.to(device)
             passer_id = passer_id.to(device)
             pass_dir = pass_dir.to(device)
@@ -250,7 +366,9 @@ def train():
             topk_mask.scatter_(1, topk_idx, True)
 
             # --- Losses ---
-            loss_move, loss_move_vec, loss_move_mag, loss_move_dir = compute_move_loss(pred_vel, move, config)
+            loss_move, loss_move_vec, loss_move_mag, loss_move_dir, loss_move_ade, loss_move_fde = compute_move_loss(
+                model, obs, move_seq, move_mask, dt_seq, config
+            )
             # pass_or_not 仅在有人接近球时计算
             if not config.train_move_only:
                 possession_mask = (dist.min(dim=1).values < config.trigger_dist_thr)
@@ -307,6 +425,8 @@ def train():
             log_loss_move_vec.append(loss_move_vec.item())
             log_loss_move_mag.append(loss_move_mag.item())
             log_loss_move_dir.append(loss_move_dir.item())
+            log_loss_move_ade.append(loss_move_ade.item())
+            log_loss_move_fde.append(loss_move_fde.item())
             log_loss_pass.append(loss_pass.item())
             log_loss_passer.append(loss_passer.item())
             log_loss_receiver.append(loss_receiver.item())
@@ -334,6 +454,8 @@ def train():
         val_loss_move_vec = []
         val_loss_move_mag = []
         val_loss_move_dir = []
+        val_loss_move_ade = []
+        val_loss_move_fde = []
 
         # 额外统计
         passer_correct = 0
@@ -342,9 +464,11 @@ def train():
         recv_total = 0
 
         with torch.no_grad():
-            for obs, move, pass_flag, passer_id, pass_dir, receiver_id in val_loader:
+            for obs, move_seq, move_mask, dt_seq, pass_flag, passer_id, pass_dir, receiver_id in val_loader:
                 obs = obs.to(device)
-                move = move.to(device)
+                move_seq = move_seq.to(device)
+                move_mask = move_mask.to(device)
+                dt_seq = dt_seq.to(device)
                 pass_flag = pass_flag.to(device)
                 passer_id = passer_id.to(device)
                 pass_dir = pass_dir.to(device)
@@ -369,11 +493,15 @@ def train():
                 topk_mask.scatter_(1, topk_idx, True)
 
                 # 计算 val loss (同训练配方)
-                loss_move, loss_move_vec, loss_move_mag, loss_move_dir = compute_move_loss(pred_vel, move, config)
+                loss_move, loss_move_vec, loss_move_mag, loss_move_dir, loss_move_ade, loss_move_fde = compute_move_loss(
+                    model, obs, move_seq, move_mask, dt_seq, config
+                )
                 val_loss_move.append(loss_move.item())
                 val_loss_move_vec.append(loss_move_vec.item())
                 val_loss_move_mag.append(loss_move_mag.item())
                 val_loss_move_dir.append(loss_move_dir.item())
+                val_loss_move_ade.append(loss_move_ade.item())
+                val_loss_move_fde.append(loss_move_fde.item())
                 if not config.train_move_only:
                     possession_mask = (dist.min(dim=1).values < config.trigger_dist_thr)
                     if possession_mask.any():
@@ -438,6 +566,8 @@ def train():
         avg_val_move_vec = np.mean(val_loss_move_vec) if val_loss_move_vec else float("nan")
         avg_val_move_mag = np.mean(val_loss_move_mag) if val_loss_move_mag else float("nan")
         avg_val_move_dir = np.mean(val_loss_move_dir) if val_loss_move_dir else float("nan")
+        avg_val_move_ade = np.mean(val_loss_move_ade) if val_loss_move_ade else float("nan")
+        avg_val_move_fde = np.mean(val_loss_move_fde) if val_loss_move_fde else float("nan")
 
         if not config.train_move_only:
             # --- Threshold Analysis (Pass/Not) ---
@@ -476,6 +606,8 @@ def train():
             "train/loss_move_vec": np.mean(log_loss_move_vec),
             "train/loss_move_mag": np.mean(log_loss_move_mag),
             "train/loss_move_dir": np.mean(log_loss_move_dir),
+            "train/loss_move_ade": np.mean(log_loss_move_ade),
+            "train/loss_move_fde": np.mean(log_loss_move_fde),
             "train/loss_pass": np.mean(log_loss_pass),
             "train/loss_passer": np.mean(log_loss_passer),
             "train/loss_receiver": np.mean(log_loss_receiver),
@@ -487,6 +619,8 @@ def train():
             "val/loss_move_vec": avg_val_move_vec,
             "val/loss_move_mag": avg_val_move_mag,
             "val/loss_move_dir": avg_val_move_dir,
+            "val/loss_move_ade": avg_val_move_ade,
+            "val/loss_move_fde": avg_val_move_fde,
             "val/precision": p,
             "val/recall": r,
             "val/passer_acc": passer_acc,

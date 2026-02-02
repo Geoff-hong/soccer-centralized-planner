@@ -5,11 +5,12 @@ import os
 import glob  # [新增] 用于查找文件
 
 class SoccerDataset(Dataset):
-    def __init__(self, data_path_or_dir=None, obs_history=1, file_paths=None):
+    def __init__(self, data_path_or_dir=None, obs_history=1, file_paths=None, move_horizon=1):
         """
         data_path_or_dir: 可以是单个 .npz 文件路径，也可以是包含多个 .npz 文件的文件夹路径
         """
         self.obs_history = max(1, int(obs_history))
+        self.move_horizon = max(1, int(move_horizon))
         self.file_paths = []
         
         if file_paths is not None:
@@ -43,7 +44,9 @@ class SoccerDataset(Dataset):
         passer_id_list = []
         pass_dir_list = []
         receiver_id_list = []
+        dt_list = []
         
+        self.file_lengths = []
         for fp in self.file_paths:
             fname = os.path.basename(fp)
             try:
@@ -55,6 +58,25 @@ class SoccerDataset(Dataset):
 
                 curr_obs = data['obs']
 
+                def _normalize_dt(dt_val, n_frames):
+                    # Ensure dt is 1-D with length = n_frames
+                    if dt_val is None:
+                        return np.full(n_frames, 0.1, dtype=np.float32)
+                    dt_arr = np.asarray(dt_val, dtype=np.float32)
+                    if dt_arr.ndim == 0:
+                        return np.full(n_frames, float(dt_arr), dtype=np.float32)
+                    if dt_arr.size == 0:
+                        return np.full(n_frames, 0.1, dtype=np.float32)
+                    if dt_arr.shape[0] == n_frames:
+                        return dt_arr
+                    if dt_arr.size == 1:
+                        return np.full(n_frames, float(dt_arr.reshape(-1)[0]), dtype=np.float32)
+                    # Fallback: trim or pad with last value
+                    if dt_arr.shape[0] > n_frames:
+                        return dt_arr[:n_frames]
+                    pad = np.full(n_frames - dt_arr.shape[0], dt_arr[-1], dtype=np.float32)
+                    return np.concatenate([dt_arr, pad], axis=0)
+
                 # 新格式
                 if 'act_move' in data and 'pass_flag' in data:
                     curr_move = data['act_move']
@@ -62,6 +84,7 @@ class SoccerDataset(Dataset):
                     curr_passer_id = data.get('passer_id', np.full(len(curr_obs), -1, dtype=np.int64))
                     curr_pass_dir = data.get('pass_dir', np.full(len(curr_obs), -1, dtype=np.int64))
                     curr_receiver_id = data.get('receiver_id', np.full(len(curr_obs), -1, dtype=np.int64))
+                    curr_dt = _normalize_dt(data.get('dt', 0.1), len(curr_obs))
 
                     obs_list.append(curr_obs)
                     move_list.append(curr_move)
@@ -69,6 +92,8 @@ class SoccerDataset(Dataset):
                     passer_id_list.append(curr_passer_id)
                     pass_dir_list.append(curr_pass_dir)
                     receiver_id_list.append(curr_receiver_id)
+                    dt_list.append(curr_dt)
+                    self.file_lengths.append(curr_obs.shape[0])
                     print(f"  > Loaded {fname}: {curr_obs.shape[0]} frames (new format)")
                 # 兼容旧格式
                 elif 'acts' in data:
@@ -79,6 +104,9 @@ class SoccerDataset(Dataset):
                     passer_id_list.append(np.full(len(curr_obs), -1, dtype=np.int64))
                     pass_dir_list.append(np.full(len(curr_obs), -1, dtype=np.int64))
                     receiver_id_list.append(np.full(len(curr_obs), -1, dtype=np.int64))
+                    curr_dt = _normalize_dt(data.get('dt', 0.1), len(curr_obs))
+                    dt_list.append(curr_dt)
+                    self.file_lengths.append(curr_obs.shape[0])
                     print(f"  > Loaded {fname}: {curr_obs.shape[0]} frames (legacy acts)")
                 else:
                     print(f"  [Skip] {fname} 缺少 act_move/pass_flag 或 acts 键")
@@ -99,6 +127,7 @@ class SoccerDataset(Dataset):
         combined_passer_id = np.concatenate(passer_id_list, axis=0)
         combined_pass_dir = np.concatenate(pass_dir_list, axis=0)
         combined_receiver_id = np.concatenate(receiver_id_list, axis=0)
+        combined_dt = np.concatenate(dt_list, axis=0)
 
         # 转为 Tensor
         self.obs = torch.FloatTensor(combined_obs)
@@ -107,23 +136,67 @@ class SoccerDataset(Dataset):
         self.passer_id = torch.LongTensor(combined_passer_id)
         self.pass_dir = torch.LongTensor(combined_pass_dir)
         self.receiver_id = torch.LongTensor(combined_receiver_id)
+        self.dt = torch.FloatTensor(combined_dt)
 
         # 4. 重新计算统计信息 (逻辑与之前一致，但现在是针对所有比赛的总和)
         self.total_frames = len(self.obs)
         self.kick_mask = self.pass_flag > 0.5
         self.n_kicks = self.kick_mask.sum().item()
-        
+
+        # 5. 记录每场比赛的帧范围，用于避免跨场历史堆叠或多步预测
+        self.file_start_idxs = []
+        self.file_end_idxs = []
+        acc = 0
+        for n in self.file_lengths:
+            self.file_start_idxs.append(acc)
+            acc += n
+            self.file_end_idxs.append(acc)  # end is exclusive
+        if acc != self.total_frames:
+            raise RuntimeError("文件长度累积与总帧数不一致，数据拼接可能有误")
+
         print(f"Dataset Ready! Total Frames: {self.total_frames}, Total Pass Frames: {self.n_kicks}")
 
     def __len__(self):
         return len(self.obs)
 
     def __getitem__(self, idx):
-        if self.obs_history == 1:
-            return self.obs[idx], self.move[idx], self.pass_flag[idx], self.passer_id[idx], self.pass_dir[idx], self.receiver_id[idx]
+        # 确定当前帧所在文件的范围，避免跨场历史堆叠或多步预测
+        # 线性扫描足够快（文件数<=几十），如有性能需求再优化为二分
+        file_start = 0
+        file_end = self.total_frames
+        for s, e in zip(self.file_start_idxs, self.file_end_idxs):
+            if s <= idx < e:
+                file_start, file_end = s, e
+                break
 
-        # 堆叠过去 K 帧（不够则用第一帧补齐）
-        start = max(0, idx - (self.obs_history - 1))
+        # 多步目标
+        if self.move_horizon == 1:
+            move_seq = self.move[idx].unsqueeze(0)
+            move_mask = torch.ones(1, dtype=torch.float32)
+            dt_seq = self.dt[idx].unsqueeze(0)
+        else:
+            max_end = min(idx + self.move_horizon, file_end)
+            seq = self.move[idx:max_end]
+            seq_dt = self.dt[idx:max_end]
+            if seq.shape[0] < self.move_horizon:
+                pad = torch.zeros(self.move_horizon - seq.shape[0], seq.shape[1], seq.shape[2])
+                move_seq = torch.cat([seq, pad], dim=0)
+                move_mask = torch.zeros(self.move_horizon, dtype=torch.float32)
+                move_mask[:seq.shape[0]] = 1.0
+                dt_pad = torch.zeros(self.move_horizon - seq_dt.shape[0], dtype=seq_dt.dtype)
+                dt_seq = torch.cat([seq_dt, dt_pad], dim=0)
+                if seq_dt.shape[0] > 0:
+                    dt_seq[seq_dt.shape[0]:] = dt_seq[seq_dt.shape[0] - 1]
+            else:
+                move_seq = seq
+                move_mask = torch.ones(self.move_horizon, dtype=torch.float32)
+                dt_seq = seq_dt
+
+        if self.obs_history == 1:
+            return self.obs[idx], move_seq, move_mask, dt_seq, self.pass_flag[idx], self.passer_id[idx], self.pass_dir[idx], self.receiver_id[idx]
+
+        # 堆叠过去 K 帧（不够则用本场第一帧补齐）
+        start = max(file_start, idx - (self.obs_history - 1))
         frames = self.obs[start:idx + 1]  # [t, 23, 3]
 
         if frames.shape[0] < self.obs_history:
@@ -131,7 +204,7 @@ class SoccerDataset(Dataset):
             frames = torch.cat([pad, frames], dim=0)
 
         stacked = frames.permute(1, 0, 2).reshape(23, self.obs_history * 3)
-        return stacked, self.move[idx], self.pass_flag[idx], self.passer_id[idx], self.pass_dir[idx], self.receiver_id[idx]
+        return stacked, move_seq, move_mask, dt_seq, self.pass_flag[idx], self.passer_id[idx], self.pass_dir[idx], self.receiver_id[idx]
 
     # === 计算采样权重 (逻辑完全不用变，因为它基于合并后的 self.total_frames 计算) ===
     def get_sample_weights(self):

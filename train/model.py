@@ -3,7 +3,7 @@ import torch.nn as nn
 import math
 
 class SoccerPolicy(nn.Module):
-    def __init__(self, d_model=128, nhead=4, num_layers=3, dropout=0.1, input_dim=3):
+    def __init__(self, d_model=128, nhead=4, num_layers=3, dropout=0.1, input_dim=3, move_horizon=1):
         """
         Args:
             d_model: 内部特征维度 (建议 128 或 256)
@@ -11,8 +11,10 @@ class SoccerPolicy(nn.Module):
             num_layers: Transformer 层数
             dropout: 防止过拟合
             input_dim: 输入特征维度（默认 3, 堆叠历史则为 3 * K）
+            move_horizon: 预测未来 K 帧速度
         """
         super().__init__()
+        self.move_horizon = max(1, int(move_horizon))
         
         # ===========================
         # 1. Embedding Layer
@@ -42,11 +44,11 @@ class SoccerPolicy(nn.Module):
         # ===========================
         # 我们只预测前 11 个 Agent (Teammates) 的动作
         
-        # Head A: Movement (Vx, Vy) -> 回归
+        # Head A: Movement (Vx, Vy) -> 回归，支持 multi-step
         self.head_move = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
             nn.ReLU(),
-            nn.Linear(d_model // 2, 2)
+            nn.Linear(d_model // 2, 2 * self.move_horizon)
         )
         
         # Head B: Pass/Not (Global, Logits)
@@ -74,7 +76,7 @@ class SoccerPolicy(nn.Module):
         """
         x: [Batch, 23, 3]
         Returns: 
-            pred_vel: [Batch, 11, 2]
+            pred_vel: [Batch, K, 11, 2]
             pred_pass: [Batch, 1]
             pred_passer: [Batch, 11]
             pred_receiver: [Batch, 11]
@@ -97,6 +99,8 @@ class SoccerPolicy(nn.Module):
 
         # 5. Heads
         pred_vel = self.head_move(teammate_feat)
+        # [B, 11, K*2] -> [B, 11, K, 2] -> [B, K, 11, 2]
+        pred_vel = pred_vel.view(B, 11, self.move_horizon, 2).permute(0, 2, 1, 3).contiguous()
         pred_pass = self.head_pass(global_feat)  # [B, 1]
         pred_passer = self.head_passer(teammate_feat).squeeze(-1)  # [B, 11]
         pred_receiver = self.head_receiver(teammate_feat).squeeze(-1)  # [B, 11]
