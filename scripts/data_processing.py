@@ -447,6 +447,7 @@ def process_match_data(match_id):
         pass_dir=pass_dir_array,
         receiver_id=receiver_id_array,
         dt=np.array(DT, dtype=np.float32),
+        move_unit="mps",
     )
     print(f"   Saved to {output_file}")
 

@@ -85,6 +85,21 @@ class SoccerDataset(Dataset):
                     curr_pass_dir = data.get('pass_dir', np.full(len(curr_obs), -1, dtype=np.int64))
                     curr_receiver_id = data.get('receiver_id', np.full(len(curr_obs), -1, dtype=np.int64))
                     curr_dt = _normalize_dt(data.get('dt', 0.1), len(curr_obs))
+                    # Normalize act_move to m/s if needed (some legacy files store m/frame).
+                    move_unit = data.get('move_unit', None)
+                    if move_unit is not None:
+                        try:
+                            if hasattr(move_unit, "item"):
+                                move_unit = move_unit.item()
+                        except Exception:
+                            pass
+                        if isinstance(move_unit, bytes):
+                            move_unit = move_unit.decode("utf-8", errors="ignore")
+                        if isinstance(move_unit, str):
+                            unit_norm = move_unit.strip().lower()
+                            if unit_norm in {"mframe", "m/frame", "m_per_frame", "per_frame"}:
+                                dt_safe = np.clip(curr_dt, 1e-6, None)
+                                curr_move = curr_move / dt_safe[:, None, None]
 
                     obs_list.append(curr_obs)
                     move_list.append(curr_move)

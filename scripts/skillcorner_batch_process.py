@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 
+import numpy as np
+
 from skillcorner_local_utils import resolve_opendata_root
 
 
@@ -24,6 +26,46 @@ def run(cmd, cwd):
     cmd_str = [str(c) for c in cmd]
     print(f"\n$ {' '.join(cmd_str)}")
     subprocess.run(cmd_str, cwd=cwd, check=True)
+
+
+def verify_npz_units(npz_path, expected_dt):
+    data = np.load(npz_path, allow_pickle=True)
+    move_unit = data.get("move_unit", None)
+    dt = data.get("dt", None)
+    if move_unit is None:
+        move_unit = "mps"
+    if dt is None:
+        dt = np.array(expected_dt, dtype=np.float32)
+
+    try:
+        move_unit_val = move_unit.item()
+    except Exception:
+        move_unit_val = move_unit
+    try:
+        dt_val = float(dt)
+    except Exception:
+        dt_val = float(dt.item()) if hasattr(dt, "item") else expected_dt
+
+    if abs(dt_val - expected_dt) > 1e-6:
+        print(f"[Warn] dt in {os.path.basename(npz_path)} is {dt_val} (expected {expected_dt}).")
+
+    if move_unit_val != "mps":
+        print(f"[Warn] move_unit in {os.path.basename(npz_path)} is {move_unit_val}, expected 'mps'.")
+
+    # Ensure metadata exists (overwrites file with same arrays if missing)
+    if data.get("move_unit", None) is None or data.get("dt", None) is None:
+        print(f"[Fix] Writing missing metadata to {os.path.basename(npz_path)}.")
+        np.savez_compressed(
+            npz_path,
+            obs=data["obs"],
+            act_move=data["act_move"],
+            pass_flag=data["pass_flag"],
+            passer_id=data["passer_id"],
+            pass_dir=data["pass_dir"],
+            receiver_id=data["receiver_id"],
+            dt=np.array(expected_dt, dtype=np.float32),
+            move_unit="mps",
+        )
 
 
 def main():
@@ -92,6 +134,8 @@ def main():
             + (["--limit", str(args.limit)] if args.limit is not None else []),
             cwd=project_root,
         )
+
+        verify_npz_units(npz_path, expected_dt=args.sample_rate)
 
         run(
             [
