@@ -35,7 +35,25 @@ def _list_npz_files(path: str) -> List[str]:
     raise FileNotFoundError(f"Invalid data path: {path}")
 
 
-def _load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, float]:
+def _normalize_dt(dt_val, n_frames: int) -> np.ndarray:
+    if dt_val is None:
+        return np.full(n_frames, 0.1, dtype=np.float32)
+    dt_arr = np.asarray(dt_val, dtype=np.float32)
+    if dt_arr.ndim == 0:
+        return np.full(n_frames, float(dt_arr), dtype=np.float32)
+    if dt_arr.size == 0:
+        return np.full(n_frames, 0.1, dtype=np.float32)
+    if dt_arr.shape[0] == n_frames:
+        return dt_arr
+    if dt_arr.size == 1:
+        return np.full(n_frames, float(dt_arr.reshape(-1)[0]), dtype=np.float32)
+    if dt_arr.shape[0] > n_frames:
+        return dt_arr[:n_frames]
+    pad = np.full(n_frames - dt_arr.shape[0], dt_arr[-1], dtype=np.float32)
+    return np.concatenate([dt_arr, pad], axis=0)
+
+
+def _load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     data = np.load(fp)
     obs = data["obs"]
     if "act_move" in data:
@@ -44,10 +62,25 @@ def _load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, float]:
         move = data["acts"][:, :, 0:2]
     else:
         raise KeyError(f"{fp} missing act_move/acts")
-    if "dt" in data:
-        dt = float(np.array(data["dt"]).reshape(-1)[0])
-    else:
-        dt = 0.1
+
+    dt = _normalize_dt(data.get("dt", 0.1), len(obs))
+
+    # Normalize act_move to m/s if needed (legacy m/frame files).
+    move_unit = data.get("move_unit", None)
+    if move_unit is not None:
+        try:
+            if hasattr(move_unit, "item"):
+                move_unit = move_unit.item()
+        except Exception:
+            pass
+        if isinstance(move_unit, bytes):
+            move_unit = move_unit.decode("utf-8", errors="ignore")
+        if isinstance(move_unit, str):
+            unit_norm = move_unit.strip().lower()
+            if unit_norm in {"mframe", "m/frame", "m_per_frame", "per_frame"}:
+                dt_safe = np.clip(dt, 1e-6, None)
+                move = move / dt_safe[:, None, None]
+
     return obs, move, dt
 
 
@@ -66,11 +99,11 @@ def _stack_obs(obs: np.ndarray, k: int) -> np.ndarray:
     return stacked
 
 
-def _to_metric_pos(obs: np.ndarray) -> np.ndarray:
+def _to_metric_pos(obs: np.ndarray, scale_x: float, scale_y: float) -> np.ndarray:
     # obs: [T, 23, 3] in normalized coords
     pos = obs[:, :11, 0:2].copy()
-    pos[:, :, 0] = pos[:, :, 0] * 52.5 + 52.5
-    pos[:, :, 1] = pos[:, :, 1] * 34.0 + 34.0
+    pos[:, :, 0] = pos[:, :, 0] * scale_x + scale_x
+    pos[:, :, 1] = pos[:, :, 1] * scale_y + scale_y
     return pos
 
 
@@ -131,13 +164,21 @@ def _baseline_mse(tgt: np.ndarray) -> Dict[str, float]:
     }
 
 
-def _multistep_ade_fde(pred: np.ndarray, pos: np.ndarray, dt: float, horizon: int) -> Tuple[float, float]:
+def _multistep_ade_fde(
+    pred: np.ndarray, pos: np.ndarray, dt: np.ndarray, horizon: int
+) -> Tuple[float, float]:
     t = pred.shape[0]
     if t <= horizon:
         return float("nan"), float("nan")
-    # cumulative sum of velocity
+    dt_arr = np.asarray(dt, dtype=np.float32)
+    if dt_arr.ndim == 0:
+        dt_arr = np.full(t, float(dt_arr), dtype=np.float32)
+    if dt_arr.shape[0] != t:
+        dt_arr = _normalize_dt(dt_arr, t)
+    dt_arr = dt_arr.reshape(-1, 1, 1)
+
     zeros = np.zeros((1, pred.shape[1], 2), dtype=np.float32)
-    cs = np.concatenate([zeros, np.cumsum(pred, axis=0)], axis=0) * dt
+    cs = np.concatenate([zeros, np.cumsum(pred * dt_arr, axis=0)], axis=0)
     total_ade = 0.0
     total_fde = 0.0
     count_steps = 0
@@ -173,6 +214,9 @@ def eval_files(
     speed_thr: float,
     dir_speed_thr: float,
     max_frames: int,
+    use_move_residual: bool,
+    move_pos_scale_x: float,
+    move_pos_scale_y: float,
 ):
     state = torch.load(checkpoint, map_location=device)
     state_dict = state.get("model", state)
@@ -208,9 +252,17 @@ def eval_files(
         if max_frames > 0:
             obs = obs[:max_frames]
             move = move[:max_frames]
+            dt = dt[:max_frames]
 
         stacked = _stack_obs(obs, obs_history)
         t = stacked.shape[0]
+        base_vel = None
+        if use_move_residual and obs_history >= 2:
+            scale = np.array([move_pos_scale_x, move_pos_scale_y], dtype=np.float32)
+            pos_last = stacked[:, :11, (obs_history - 1) * 3 : (obs_history - 1) * 3 + 2]
+            pos_prev = stacked[:, :11, (obs_history - 2) * 3 : (obs_history - 2) * 3 + 2]
+            dt_safe = np.clip(dt, 1e-6, None).reshape(-1, 1, 1)
+            base_vel = (pos_last * scale - pos_prev * scale) / dt_safe
         preds = []
         with torch.no_grad():
             for i in range(0, t, batch_size):
@@ -223,10 +275,12 @@ def eval_files(
             pred_vel_step0 = pred_vel[:, 0]
         else:
             pred_vel_step0 = pred_vel
+        if use_move_residual and base_vel is not None:
+            pred_vel_step0 = pred_vel_step0 + base_vel
 
         metrics = _compute_metrics(pred_vel_step0, move, speed_thr, dir_speed_thr)
         base = _baseline_mse(move)
-        pos = _to_metric_pos(obs)
+        pos = _to_metric_pos(obs, move_pos_scale_x, move_pos_scale_y)
         ade, fde = _multistep_ade_fde(pred_vel_step0, pos, dt, horizon)
 
         n = move.shape[0] * move.shape[1]
@@ -239,7 +293,7 @@ def eval_files(
         agg["fde"] += fde * n
 
         print(f"\n=== {os.path.basename(fp)} ===")
-        print(f"Frames: {move.shape[0]} | dt={dt}")
+        print(f"Frames: {move.shape[0]} | dt={float(np.array(dt).reshape(-1)[0]):.6f}")
         print(f"MSE: {metrics['mse']:.6f}")
         print(f"Cosine (tgt speed>{dir_speed_thr}): {metrics['cosine']:.4f}")
         print(f"|v| err: {metrics['mag_err']:.4f}")
@@ -276,6 +330,9 @@ def main():
     parser.add_argument("--speed_thr", type=float, default=4.0)
     parser.add_argument("--dir_speed_thr", type=float, default=0.5)
     parser.add_argument("--max_frames", type=int, default=0, help="Limit frames per file for quick test")
+    parser.add_argument("--use_move_residual", type=int, default=1, help="1 to add base velocity (match training), 0 to use raw head output")
+    parser.add_argument("--move_pos_scale_x", type=float, default=52.5)
+    parser.add_argument("--move_pos_scale_y", type=float, default=34.0)
     args = parser.parse_args()
 
     files = _list_npz_files(args.data)
@@ -296,6 +353,9 @@ def main():
         speed_thr=args.speed_thr,
         dir_speed_thr=args.dir_speed_thr,
         max_frames=args.max_frames,
+        use_move_residual=bool(args.use_move_residual),
+        move_pos_scale_x=args.move_pos_scale_x,
+        move_pos_scale_y=args.move_pos_scale_y,
     )
 
 

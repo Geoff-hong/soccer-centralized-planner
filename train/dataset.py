@@ -45,6 +45,8 @@ class SoccerDataset(Dataset):
         pass_dir_list = []
         receiver_id_list = []
         dt_list = []
+        expected_agents = None
+        expected_attackers = None
         
         self.file_lengths = []
         for fp in self.file_paths:
@@ -101,6 +103,23 @@ class SoccerDataset(Dataset):
                                 dt_safe = np.clip(curr_dt, 1e-6, None)
                                 curr_move = curr_move / dt_safe[:, None, None]
 
+                    # 基本 shape 校验（避免混入不同人数的数据）
+                    if curr_obs.ndim != 3 or curr_obs.shape[2] < 3:
+                        raise ValueError(f"{fname} obs shape invalid: {curr_obs.shape}")
+                    if curr_move.ndim != 3 or curr_move.shape[2] != 2:
+                        raise ValueError(f"{fname} act_move shape invalid: {curr_move.shape}")
+                    n_agents = curr_obs.shape[1]
+                    n_att = curr_move.shape[1]
+                    if expected_agents is None:
+                        expected_agents = n_agents
+                        expected_attackers = n_att
+                    else:
+                        if n_agents != expected_agents or n_att != expected_attackers:
+                            raise ValueError(
+                                f"{fname} agent/attacker count mismatch: "
+                                f"obs={n_agents}, act_move={n_att} vs expected {expected_agents}/{expected_attackers}"
+                            )
+
                     obs_list.append(curr_obs)
                     move_list.append(curr_move)
                     pass_flag_list.append(curr_pass_flag)
@@ -113,6 +132,21 @@ class SoccerDataset(Dataset):
                 # 兼容旧格式
                 elif 'acts' in data:
                     curr_acts = data['acts']
+                    if curr_acts.ndim != 3 or curr_acts.shape[2] < 2:
+                        raise ValueError(f"{fname} acts shape invalid: {curr_acts.shape}")
+                    if curr_obs.ndim != 3 or curr_obs.shape[2] < 3:
+                        raise ValueError(f"{fname} obs shape invalid: {curr_obs.shape}")
+                    n_agents = curr_obs.shape[1]
+                    n_att = curr_acts.shape[1]
+                    if expected_agents is None:
+                        expected_agents = n_agents
+                        expected_attackers = n_att
+                    else:
+                        if n_agents != expected_agents or n_att != expected_attackers:
+                            raise ValueError(
+                                f"{fname} agent/attacker count mismatch: "
+                                f"obs={n_agents}, acts={n_att} vs expected {expected_agents}/{expected_attackers}"
+                            )
                     obs_list.append(curr_obs)
                     move_list.append(curr_acts[:, :, 0:2])
                     pass_flag_list.append((curr_acts[:, :, 2] > 0.5).any(axis=1).astype(np.float32))
@@ -152,6 +186,8 @@ class SoccerDataset(Dataset):
         self.pass_dir = torch.LongTensor(combined_pass_dir)
         self.receiver_id = torch.LongTensor(combined_receiver_id)
         self.dt = torch.FloatTensor(combined_dt)
+        self.n_agents = self.obs.shape[1]
+        self.n_attackers = self.move.shape[1]
 
         # 4. 重新计算统计信息 (逻辑与之前一致，但现在是针对所有比赛的总和)
         self.total_frames = len(self.obs)
@@ -212,13 +248,14 @@ class SoccerDataset(Dataset):
 
         # 堆叠过去 K 帧（不够则用本场第一帧补齐）
         start = max(file_start, idx - (self.obs_history - 1))
-        frames = self.obs[start:idx + 1]  # [t, 23, 3]
+        frames = self.obs[start:idx + 1]  # [t, E, 3]
 
         if frames.shape[0] < self.obs_history:
             pad = frames[0].unsqueeze(0).repeat(self.obs_history - frames.shape[0], 1, 1)
             frames = torch.cat([pad, frames], dim=0)
 
-        stacked = frames.permute(1, 0, 2).reshape(23, self.obs_history * 3)
+        n_agents = frames.shape[1]
+        stacked = frames.permute(1, 0, 2).reshape(n_agents, self.obs_history * 3)
         return stacked, move_seq, move_mask, dt_seq, self.pass_flag[idx], self.passer_id[idx], self.pass_dir[idx], self.receiver_id[idx]
 
     # === 计算采样权重 (逻辑完全不用变，因为它基于合并后的 self.total_frames 计算) ===

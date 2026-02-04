@@ -3,7 +3,17 @@ import torch.nn as nn
 import math
 
 class SoccerPolicy(nn.Module):
-    def __init__(self, d_model=128, nhead=4, num_layers=3, dropout=0.1, input_dim=3, move_horizon=1):
+    def __init__(
+        self,
+        d_model=128,
+        nhead=4,
+        num_layers=3,
+        dropout=0.1,
+        input_dim=3,
+        move_horizon=1,
+        num_agents=23,
+        num_attackers=11,
+    ):
         """
         Args:
             d_model: 内部特征维度 (建议 128 或 256)
@@ -15,6 +25,10 @@ class SoccerPolicy(nn.Module):
         """
         super().__init__()
         self.move_horizon = max(1, int(move_horizon))
+        self.num_agents = int(num_agents)
+        self.num_attackers = int(num_attackers)
+        if self.num_agents < self.num_attackers + 1:
+            raise ValueError("num_agents must be >= num_attackers + 1 (ball)")
         
         # ===========================
         # 1. Embedding Layer
@@ -22,9 +36,9 @@ class SoccerPolicy(nn.Module):
         # Input: [x, y, has_ball] -> 3 features (或堆叠历史)
         self.input_proj = nn.Linear(input_dim, d_model)
         
-        # Learnable Positional Encoding (用于区分 23 个不同的 Agent)
-        # 0-10: Teammates, 11-21: Opponents, 22: Ball
-        self.agent_pos_embed = nn.Parameter(torch.randn(1, 23, d_model))
+        # Learnable Positional Encoding (用于区分不同的 Agent)
+        # 0..(num_attackers-1): Teammates, num_attackers..(num_agents-2): Opponents, last: Ball
+        self.agent_pos_embed = nn.Parameter(torch.randn(1, self.num_agents, d_model))
         
         # ===========================
         # 2. Backbone (Transformer)
@@ -42,7 +56,7 @@ class SoccerPolicy(nn.Module):
         # ===========================
         # 3. Action Heads (Decoders)
         # ===========================
-        # 我们只预测前 11 个 Agent (Teammates) 的动作
+        # 我们只预测前 num_attackers 个 Agent (Teammates) 的动作
         
         # Head A: Movement (Vx, Vy) -> 回归，支持 multi-step
         self.head_move = nn.Sequential(
@@ -58,14 +72,14 @@ class SoccerPolicy(nn.Module):
             nn.Linear(d_model // 2, 1)
         )
 
-        # Head C: Passer ID (11-class)
+        # Head C: Passer ID (A-class)
         self.head_passer = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
             nn.ReLU(),
             nn.Linear(d_model // 2, 1)
         )
 
-        # Head D: Receiver ID (11-class)
+        # Head D: Receiver ID (A-class)
         self.head_receiver = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
             nn.ReLU(),
@@ -74,35 +88,38 @@ class SoccerPolicy(nn.Module):
 
     def forward(self, x):
         """
-        x: [Batch, 23, 3]
+        x: [Batch, N, F]
         Returns: 
-            pred_vel: [Batch, K, 11, 2]
+            pred_vel: [Batch, K, num_attackers, 2]
             pred_pass: [Batch, 1]
-            pred_passer: [Batch, 11]
-            pred_receiver: [Batch, 11]
+            pred_passer: [Batch, num_attackers]
+            pred_receiver: [Batch, num_attackers]
         """
         B, N, F = x.shape
+        if N != self.num_agents:
+            raise ValueError(f"Input agent count {N} != model.num_agents {self.num_agents}")
+        ball_idx = self.num_agents - 1
         
         # 1. Embed & Add Identity
         x = self.input_proj(x)
-        x = x + self.agent_pos_embed # Broadcasting [1, 23, D] -> [B, 23, D]
+        x = x + self.agent_pos_embed # Broadcasting [1, N, D] -> [B, N, D]
         
         # 2. Transformer Feature Extraction
-        # Output: [B, 23, D]
+        # Output: [B, N, D]
         feat = self.transformer(x)
         
-        # 3. Slice Teammates (First 11 agents)
-        teammate_feat = feat[:, :11, :] # [B, 11, D]
+        # 3. Slice Teammates (First num_attackers agents)
+        teammate_feat = feat[:, : self.num_attackers, :] # [B, A, D]
 
         # 4. Global Feature (use ball token as global context)
-        global_feat = feat[:, 22, :] # [B, D]
+        global_feat = feat[:, ball_idx, :] # [B, D]
 
         # 5. Heads
         pred_vel = self.head_move(teammate_feat)
-        # [B, 11, K*2] -> [B, 11, K, 2] -> [B, K, 11, 2]
-        pred_vel = pred_vel.view(B, 11, self.move_horizon, 2).permute(0, 2, 1, 3).contiguous()
+        # [B, A, K*2] -> [B, A, K, 2] -> [B, K, A, 2]
+        pred_vel = pred_vel.view(B, self.num_attackers, self.move_horizon, 2).permute(0, 2, 1, 3).contiguous()
         pred_pass = self.head_pass(global_feat)  # [B, 1]
-        pred_passer = self.head_passer(teammate_feat).squeeze(-1)  # [B, 11]
-        pred_receiver = self.head_receiver(teammate_feat).squeeze(-1)  # [B, 11]
+        pred_passer = self.head_passer(teammate_feat).squeeze(-1)  # [B, A]
+        pred_receiver = self.head_receiver(teammate_feat).squeeze(-1)  # [B, A]
 
         return pred_vel, pred_pass, pred_passer, pred_receiver

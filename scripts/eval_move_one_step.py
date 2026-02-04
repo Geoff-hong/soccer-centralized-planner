@@ -24,7 +24,25 @@ def list_npz(path: str) -> List[str]:
     raise FileNotFoundError(f"Invalid data path: {path}")
 
 
-def load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, float]:
+def _normalize_dt(dt_val, n_frames: int) -> np.ndarray:
+    if dt_val is None:
+        return np.full(n_frames, 0.1, dtype=np.float32)
+    dt_arr = np.asarray(dt_val, dtype=np.float32)
+    if dt_arr.ndim == 0:
+        return np.full(n_frames, float(dt_arr), dtype=np.float32)
+    if dt_arr.size == 0:
+        return np.full(n_frames, 0.1, dtype=np.float32)
+    if dt_arr.shape[0] == n_frames:
+        return dt_arr
+    if dt_arr.size == 1:
+        return np.full(n_frames, float(dt_arr.reshape(-1)[0]), dtype=np.float32)
+    if dt_arr.shape[0] > n_frames:
+        return dt_arr[:n_frames]
+    pad = np.full(n_frames - dt_arr.shape[0], dt_arr[-1], dtype=np.float32)
+    return np.concatenate([dt_arr, pad], axis=0)
+
+
+def load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     data = np.load(fp)
     obs = data["obs"]
     if "act_move" in data:
@@ -33,7 +51,23 @@ def load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, float]:
         move = data["acts"][:, :, 0:2]
     else:
         raise KeyError(f"{fp} missing act_move/acts")
-    dt = float(np.array(data["dt"]).reshape(-1)[0]) if "dt" in data else 0.1
+    dt = _normalize_dt(data.get("dt", 0.1), len(obs))
+
+    move_unit = data.get("move_unit", None)
+    if move_unit is not None:
+        try:
+            if hasattr(move_unit, "item"):
+                move_unit = move_unit.item()
+        except Exception:
+            pass
+        if isinstance(move_unit, bytes):
+            move_unit = move_unit.decode("utf-8", errors="ignore")
+        if isinstance(move_unit, str):
+            unit_norm = move_unit.strip().lower()
+            if unit_norm in {"mframe", "m/frame", "m_per_frame", "per_frame"}:
+                dt_safe = np.clip(dt, 1e-6, None)
+                move = move / dt_safe[:, None, None]
+
     return obs, move, dt
 
 
@@ -126,6 +160,9 @@ def eval_train_split(
     d_model: int,
     nhead: int,
     num_layers: int,
+    use_move_residual: bool,
+    move_pos_scale_x: float,
+    move_pos_scale_y: float,
 ) -> None:
     state = torch.load(checkpoint, map_location=device)
     state_dict = state.get("model", state)
@@ -154,12 +191,20 @@ def eval_train_split(
     }
 
     for fp in files:
-        obs, move, _ = load_npz(fp)
+        obs, move, dt = load_npz(fp)
         if max_frames > 0:
             obs = obs[:max_frames]
             move = move[:max_frames]
+            dt = dt[:max_frames]
         stacked = stack_obs(obs, obs_history)
         t = stacked.shape[0]
+        base_vel = None
+        if use_move_residual and obs_history >= 2:
+            scale = np.array([move_pos_scale_x, move_pos_scale_y], dtype=np.float32)
+            pos_last = stacked[:, :11, (obs_history - 1) * 3 : (obs_history - 1) * 3 + 2]
+            pos_prev = stacked[:, :11, (obs_history - 2) * 3 : (obs_history - 2) * 3 + 2]
+            dt_safe = np.clip(dt, 1e-6, None).reshape(-1, 1, 1)
+            base_vel = (pos_last * scale - pos_prev * scale) / dt_safe
 
         preds = []
         with torch.no_grad():
@@ -170,6 +215,8 @@ def eval_train_split(
                     pred_vel = pred_vel[:, 0]
                 preds.append(pred_vel.cpu().numpy())
         pred = np.concatenate(preds, axis=0)
+        if use_move_residual and base_vel is not None:
+            pred = pred + base_vel
 
         metrics = compute_metrics(pred, move, speed_thr, dir_speed_thr)
         base = baseline_mse(move)
@@ -228,6 +275,9 @@ def main() -> None:
     parser.add_argument("--d_model", type=int, default=128)
     parser.add_argument("--nhead", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=3)
+    parser.add_argument("--use_move_residual", type=int, default=1, help="1 to add base velocity (match training), 0 to use raw head output")
+    parser.add_argument("--move_pos_scale_x", type=float, default=52.5)
+    parser.add_argument("--move_pos_scale_y", type=float, default=34.0)
     args = parser.parse_args()
 
     files = list_npz(args.data)
@@ -257,6 +307,9 @@ def main() -> None:
         args.d_model,
         args.nhead,
         args.num_layers,
+        bool(args.use_move_residual),
+        args.move_pos_scale_x,
+        args.move_pos_scale_y,
     )
 
 

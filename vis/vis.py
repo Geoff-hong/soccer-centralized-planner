@@ -20,6 +20,22 @@ from train.model import SoccerPolicy
 from scripts.skillcorner_local_utils import resolve_opendata_root, build_tracking_wide_df
 
 
+def _strip_module_prefix(state_dict):
+    if not any(k.startswith("module.") for k in state_dict.keys()):
+        return state_dict
+    return {k.replace("module.", "", 1): v for k, v in state_dict.items()}
+
+
+def _infer_move_horizon(state_dict):
+    for key in ("head_move.2.weight", "head_move.2.bias"):
+        if key in state_dict:
+            out_dim = int(state_dict[key].shape[0])
+            if out_dim % 2 == 0 and out_dim > 0:
+                return max(1, out_dim // 2)
+            return 1
+    return 1
+
+
 class SlotAllocator:
     def __init__(self, initial_frame_row, all_player_ids, team_prefix="home"):
         self.slots = [None] * 11
@@ -171,15 +187,21 @@ class TrackingDrivenVis:
         self._initialize_state(args.start_frame)
 
     def _load_model(self, checkpoint_path):
+        state = torch.load(checkpoint_path, map_location=self.device)
+        state_dict = state.get("model", state)
+        state_dict = _strip_module_prefix(state_dict)
+        move_horizon = _infer_move_horizon(state_dict)
         model = SoccerPolicy(
             d_model=128,
             nhead=4,
             num_layers=3,
             dropout=0.3,
             input_dim=3 * self.args.obs_history,
+            move_horizon=move_horizon,
         ).to(self.device)
-        state = torch.load(checkpoint_path, map_location=self.device)
-        model.load_state_dict(state, strict=False)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing or unexpected:
+            print(f"[Warn] load_state_dict mismatch. Missing={missing} Unexpected={unexpected}")
         model.eval()
         return model
 
@@ -359,7 +381,16 @@ class TrackingDrivenVis:
                 p_vel = model_out[0]
             else:
                 p_vel = model_out
+        if p_vel.ndim == 4:
+            p_vel = p_vel[:, 0]
         vel_cmds = p_vel.cpu().numpy()[0]
+
+        if self.args.use_move_residual and self.args.obs_history >= 2 and len(self.obs_history) >= 2:
+            last = self.obs_history[-1][:11, 0:2]
+            prev = self.obs_history[-2][:11, 0:2]
+            scale = np.array([self.args.move_pos_scale_x, self.args.move_pos_scale_y], dtype=np.float32)
+            base_vel = (last * scale - prev * scale) / max(self.args.dt, 1e-6)
+            vel_cmds = vel_cmds + base_vel
 
         # Unflip velocities back to real coordinates
         vel_real = np.array([self._normalize_vel(v, flip=False) for v in vel_cmds], dtype=np.float32)
@@ -473,6 +504,9 @@ def parse_args():
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--dt", type=float, default=0.1)
     parser.add_argument("--obs_history", type=int, default=5)
+    parser.add_argument("--use_move_residual", type=int, default=1, help="1 to add base velocity (match training), 0 to use raw head output")
+    parser.add_argument("--move_pos_scale_x", type=float, default=52.5)
+    parser.add_argument("--move_pos_scale_y", type=float, default=34.0)
     parser.add_argument("--possession_dist_thr", type=float, default=2.0)
     parser.add_argument("--possession_hysteresis", type=int, default=5)
     parser.add_argument("--max_player_speed", type=float, default=8.0)

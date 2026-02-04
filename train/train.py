@@ -102,7 +102,7 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
     if move_seq.dim() == 3:
         move_seq = move_seq.unsqueeze(1)
 
-    bsz, k_steps, _, _ = move_seq.shape
+    bsz, k_steps, n_att, _ = move_seq.shape
     device = move_seq.device
 
     if move_mask is None:
@@ -119,9 +119,11 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
 
     hist = obs.shape[-1] // 3
     obs_roll = obs.to(device)
+    n_agents = obs_roll.shape[1]
+    ball_idx = n_agents - 1
 
     scale = torch.tensor([config.move_pos_scale_x, config.move_pos_scale_y], device=device)
-    pos0_norm = obs_roll[:, :11, (hist - 1) * 3 : (hist - 1) * 3 + 2]
+    pos0_norm = obs_roll[:, :n_att, (hist - 1) * 3 : (hist - 1) * 3 + 2]
     pos0_m = pos0_norm * scale
     pos_curr_m = pos0_m.clone()
 
@@ -138,8 +140,8 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
     def _base_vel_from_obs(obs_in, dt_step):
         if hist < 2:
             return None
-        pos_last = obs_in[:, :11, (hist - 1) * 3 : (hist - 1) * 3 + 2]
-        pos_prev = obs_in[:, :11, (hist - 2) * 3 : (hist - 2) * 3 + 2]
+        pos_last = obs_in[:, :n_att, (hist - 1) * 3 : (hist - 1) * 3 + 2]
+        pos_prev = obs_in[:, :n_att, (hist - 2) * 3 : (hist - 2) * 3 + 2]
         pos_last_m = pos_last * scale
         pos_prev_m = pos_prev * scale
         return (pos_last_m - pos_prev_m) / (dt_step + 1e-8)
@@ -148,7 +150,7 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
         pred_vel_k, _, _, _ = model(obs_roll)
         if pred_vel_k.dim() == 3:
             pred_vel_k = pred_vel_k.unsqueeze(1)
-        pred_step = pred_vel_k[:, 0]  # [B, 11, 2]
+        pred_step = pred_vel_k[:, 0]  # [B, A, 2]
 
         if getattr(config, "use_move_residual", False):
             dt_k = dt_seq[:, k].unsqueeze(-1).unsqueeze(-1)
@@ -156,8 +158,8 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
             if base_vel is not None:
                 pred_step = pred_step + base_vel
 
-        speed_t = torch.norm(move_seq[:, k], dim=2)  # [B, 11]
-        speed_p = torch.norm(pred_step, dim=2)       # [B, 11]
+        speed_t = torch.norm(move_seq[:, k], dim=2)  # [B, A]
+        speed_p = torch.norm(pred_step, dim=2)       # [B, A]
 
         high = (speed_t > config.move_speed_thr).float()
         weight = (1.0 + high * config.move_high_weight) * move_mask[:, k : k + 1]
@@ -181,8 +183,8 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
 
         # Roll obs: update attacker positions, keep defenders/ball fixed to last frame
         last = obs_roll[:, :, (hist - 1) * 3 : (hist - 1) * 3 + 3]
-        def_pos = last[:, 11:22, 0:2]
-        ball_pos = last[:, 22:23, 0:2]
+        def_pos = last[:, n_att:ball_idx, 0:2]
+        ball_pos = last[:, ball_idx:ball_idx + 1, 0:2]
 
         att_norm = pos_curr_m / scale
         def_norm = def_pos
@@ -193,17 +195,18 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
         ball_m = ball_norm * scale
 
         att_dist = torch.norm(att_m - ball_m, dim=2)
-        def_dist = torch.norm(def_m - ball_m, dim=2)
+        def_dist = torch.norm(def_m - ball_m, dim=2) if def_m.numel() > 0 else torch.zeros((bsz, 0), device=device)
         att_has = (att_dist < config.trigger_dist_thr).float()
-        def_has = (def_dist < config.trigger_dist_thr).float()
+        def_has = (def_dist < config.trigger_dist_thr).float() if def_dist.numel() > 0 else def_dist
 
-        new_frame = torch.zeros((bsz, 23, 3), device=device, dtype=obs_roll.dtype)
-        new_frame[:, :11, 0:2] = att_norm
-        new_frame[:, :11, 2] = att_has
-        new_frame[:, 11:22, 0:2] = def_norm
-        new_frame[:, 11:22, 2] = def_has
-        new_frame[:, 22, 0:2] = ball_norm.squeeze(1)
-        new_frame[:, 22, 2] = 0.0
+        new_frame = torch.zeros((bsz, n_agents, 3), device=device, dtype=obs_roll.dtype)
+        new_frame[:, :n_att, 0:2] = att_norm
+        new_frame[:, :n_att, 2] = att_has
+        if def_norm.numel() > 0:
+            new_frame[:, n_att:ball_idx, 0:2] = def_norm
+            new_frame[:, n_att:ball_idx, 2] = def_has
+        new_frame[:, ball_idx, 0:2] = ball_norm.squeeze(1)
+        new_frame[:, ball_idx, 2] = 0.0
 
         obs_roll = torch.cat([obs_roll[:, :, 3:], new_frame], dim=2)
 
@@ -214,7 +217,7 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
     else:
         dir_loss = torch.tensor(0.0, device=device)
 
-    pred_pos_abs = torch.stack(pred_pos_steps, dim=1)  # [B, K, 11, 2]
+    pred_pos_abs = torch.stack(pred_pos_steps, dim=1)  # [B, K, A, 2]
     pos_err = torch.norm(pred_pos_abs - tgt_pos_abs, dim=3)
     ade = (pos_err * step_mask).sum() / (step_mask.sum() + 1e-8)
     fde = (pos_err[:, -1] * step_mask[:, -1]).sum() / (step_mask[:, -1].sum() + 1e-8)
@@ -263,6 +266,16 @@ def train():
         train_size = len(full_dataset) - val_size
         train_set, val_set = random_split(full_dataset, [train_size, val_size])
 
+    def _get_counts(ds):
+        if hasattr(ds, "n_agents"):
+            return ds.n_agents, ds.n_attackers
+        if hasattr(ds, "dataset") and hasattr(ds.dataset, "n_agents"):
+            return ds.dataset.n_agents, ds.dataset.n_attackers
+        raise AttributeError("Dataset missing n_agents/n_attackers")
+
+    n_agents, n_attackers = _get_counts(train_set)
+    print(f"Dataset entity count: agents={n_agents}, attackers={n_attackers}")
+
     if config.use_weighted_sampler:
         print("Computing Sampler Weights (Solving Class Imbalance)...")
         train_weights = train_set.get_sample_weights()
@@ -280,7 +293,9 @@ def train():
         num_layers=config.num_layers,
         dropout=config.dropout,
         input_dim=3 * config.obs_history,
-        move_horizon=config.move_horizon
+        move_horizon=config.move_horizon,
+        num_agents=n_agents,
+        num_attackers=n_attackers,
     ).to(device)
     
     wandb.watch(model, log="all", log_freq=100)
@@ -351,9 +366,11 @@ def train():
             
             # 计算距离 (用于 top-k passer mask)
             k = config.obs_history
-            latest = obs[:, :, (k - 1) * 3 : k * 3]  # [B, 23, 3]
-            att_pos_norm = latest[:, :11, 0:2]
-            ball_pos_norm = latest[:, 22, 0:2].unsqueeze(1)
+            latest = obs[:, :, (k - 1) * 3 : k * 3]  # [B, N, 3]
+            n_att = move_seq.shape[2]
+            ball_idx = latest.shape[1] - 1
+            att_pos_norm = latest[:, :n_att, 0:2]
+            ball_pos_norm = latest[:, ball_idx, 0:2].unsqueeze(1)
             att_pos = att_pos_norm.clone()
             att_pos[:, :, 0] = att_pos[:, :, 0] * 52.5 + 52.5
             att_pos[:, :, 1] = att_pos[:, :, 1] * 34.0 + 34.0
@@ -361,7 +378,8 @@ def train():
             ball_pos[:, :, 0] = ball_pos[:, :, 0] * 52.5 + 52.5
             ball_pos[:, :, 1] = ball_pos[:, :, 1] * 34.0 + 34.0
             dist = torch.norm(att_pos - ball_pos, dim=2)
-            topk_idx = dist.topk(config.passer_topk, largest=False).indices  # [B, K]
+            topk = min(int(config.passer_topk), dist.shape[1])
+            topk_idx = dist.topk(topk, largest=False).indices  # [B, K]
             topk_mask = torch.zeros_like(dist, dtype=torch.bool)
             topk_mask.scatter_(1, topk_idx, True)
 
@@ -478,9 +496,11 @@ def train():
 
                 # top-k mask
                 k = config.obs_history
-                latest = obs[:, :, (k - 1) * 3 : k * 3]  # [B, 23, 3]
-                att_pos_norm = latest[:, :11, 0:2]
-                ball_pos_norm = latest[:, 22, 0:2].unsqueeze(1)
+                latest = obs[:, :, (k - 1) * 3 : k * 3]  # [B, N, 3]
+                n_att = move_seq.shape[2]
+                ball_idx = latest.shape[1] - 1
+                att_pos_norm = latest[:, :n_att, 0:2]
+                ball_pos_norm = latest[:, ball_idx, 0:2].unsqueeze(1)
                 att_pos = att_pos_norm.clone()
                 att_pos[:, :, 0] = att_pos[:, :, 0] * 52.5 + 52.5
                 att_pos[:, :, 1] = att_pos[:, :, 1] * 34.0 + 34.0
@@ -488,7 +508,8 @@ def train():
                 ball_pos[:, :, 0] = ball_pos[:, :, 0] * 52.5 + 52.5
                 ball_pos[:, :, 1] = ball_pos[:, :, 1] * 34.0 + 34.0
                 dist = torch.norm(att_pos - ball_pos, dim=2)
-                topk_idx = dist.topk(config.passer_topk, largest=False).indices
+                topk = min(int(config.passer_topk), dist.shape[1])
+                topk_idx = dist.topk(topk, largest=False).indices
                 topk_mask = torch.zeros_like(dist, dtype=torch.bool)
                 topk_mask.scatter_(1, topk_idx, True)
 
