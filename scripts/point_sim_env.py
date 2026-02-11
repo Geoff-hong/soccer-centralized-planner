@@ -4,7 +4,7 @@ from geometry import clip_norm, normalize
 
 
 class PointSim3v3:
-    def __init__(self, dt=0.1, seed=0):
+    def __init__(self, dt=0.1, seed=0, recv_control_mult=1.2, recv_control_sec=None):
         self.L = 105.0
         self.W = 68.0
         self.half_L = self.L / 2.0
@@ -17,12 +17,18 @@ class PointSim3v3:
         self.r_player = 0.6
 
         self.k_friction = 1.0
+        self.k_friction_shot = 0.25
         self.r_control = 1.0
+        self.recv_control_mult = float(recv_control_mult)
         self.r_tackle = 1.25
         self.p_tackle_base = 0.2
         self.r_intercept = 1.0
         self.pass_lock_sec = 0.6
         self.pass_lock_min_sec = 0.1
+        if recv_control_sec is None:
+            self.recv_control_sec = self.pass_lock_sec
+        else:
+            self.recv_control_sec = float(recv_control_sec)
         self.pass_sender_exclude_sec = 0.2
         self.pass_intercept_delay_sec = 0.2
         self.intercept_t_min = 0.2
@@ -32,6 +38,7 @@ class PointSim3v3:
         self.r_pressure = 2.5
         self.dribble_slow_near = 0.45
         self.dribble_slow_far = 0.7
+        self.ball_friction_mode = "normal"
 
         self.rng = np.random.default_rng(seed)
         self.reset(seed)
@@ -58,8 +65,10 @@ class PointSim3v3:
         self.ball_pos = self.pos_a[owner_idx].copy()
         self.pass_lock_remaining = 0
         self.pass_lock_elapsed = 0
+        self.recv_control_remaining = 0
         self.pass_intent_team = -1
         self.pass_intent_idx = -1
+        self.ball_friction_mode = "normal"
         self.pass_sender_team = -1
         self.pass_sender_idx = -1
         self.pass_start_pos = self.ball_pos.copy()
@@ -172,15 +181,22 @@ class PointSim3v3:
         self.ball_pos = owner_pos.copy()
         self.ball_vel = direction * speed
         if pass_event.get("kind") == "pass":
+            self.ball_friction_mode = "normal"
             self.pass_intent_team = 0
             self.pass_intent_idx = int(pass_event.get("receiver_id", -1))
             self.pass_lock_remaining = max(1, int(round(self.pass_lock_sec / self.dt)))
             self.pass_lock_elapsed = 0
+            if self.recv_control_sec > 0:
+                self.recv_control_remaining = max(1, int(round(self.recv_control_sec / self.dt)))
+            else:
+                self.recv_control_remaining = 0
         else:
+            self.ball_friction_mode = "shot"
             self.pass_intent_team = -1
             self.pass_intent_idx = -1
             self.pass_lock_remaining = 0
             self.pass_lock_elapsed = 0
+            self.recv_control_remaining = 0
 
     def _update_players(self, v_cmd_att, v_cmd_def):
         v_cmd_att = np.asarray(v_cmd_att, dtype=np.float32)
@@ -256,7 +272,8 @@ class PointSim3v3:
             return
         # free ball
         self.ball_pos = self.ball_pos + self.ball_vel * self.dt
-        self.ball_vel = self.ball_vel * float(np.exp(-self.k_friction * self.dt))
+        k = self.k_friction_shot if self.ball_friction_mode == "shot" else self.k_friction
+        self.ball_vel = self.ball_vel * float(np.exp(-k * self.dt))
 
     def _set_owner(self, team, idx):
         self.ball_mode = "possessed"
@@ -264,10 +281,12 @@ class PointSim3v3:
         self.owner_idx = int(idx)
         self.ball_vel = np.zeros(2, dtype=np.float32)
         self._sync_ball_to_owner()
+        self.ball_friction_mode = "normal"
         self.pass_intent_team = -1
         self.pass_intent_idx = -1
         self.pass_lock_remaining = 0
         self.pass_lock_elapsed = 0
+        self.recv_control_remaining = 0
         self.pass_sender_team = -1
         self.pass_sender_idx = -1
         self.pass_flight_steps = 0
@@ -350,8 +369,8 @@ class PointSim3v3:
         if self.ball_mode == "free" and self.pass_lock_remaining > 0:
             if self.pass_intent_team == 0 and 0 <= self.pass_intent_idx < 3:
                 recv_pos = self.pos_a[self.pass_intent_idx]
-                if self.pass_lock_elapsed >= max(1, int(round(self.pass_lock_min_sec / self.dt))):
-                    if np.linalg.norm(recv_pos - self.ball_pos) < self.r_control * 1.2:
+                if self.pass_flight_steps >= max(1, int(round(self.pass_lock_min_sec / self.dt))):
+                    if np.linalg.norm(recv_pos - self.ball_pos) < self.r_control * self.recv_control_mult:
                         self._set_owner(0, self.pass_intent_idx)
                         return
             # allow intercept after a short delay if receiver didn't take it
@@ -360,7 +379,19 @@ class PointSim3v3:
                     return
             self.pass_lock_elapsed += 1
             self.pass_lock_remaining -= 1
+            if self.recv_control_remaining > 0:
+                self.recv_control_remaining -= 1
             return
+
+        # 0b) after pass_lock ends, still allow intended receiver control for longer window
+        if self.ball_mode == "free" and self.recv_control_remaining > 0:
+            if self.pass_intent_team == 0 and 0 <= self.pass_intent_idx < 3:
+                recv_pos = self.pos_a[self.pass_intent_idx]
+                if self.pass_flight_steps >= max(1, int(round(self.pass_lock_min_sec / self.dt))):
+                    if np.linalg.norm(recv_pos - self.ball_pos) < self.r_control * self.recv_control_mult:
+                        self._set_owner(0, self.pass_intent_idx)
+                        return
+            self.recv_control_remaining -= 1
 
         # 1) if ball free: control by nearest within r_control
         if self.ball_mode == "free":

@@ -85,6 +85,8 @@ class SoccerPolicy(nn.Module):
             nn.ReLU(),
             nn.Linear(d_model // 2, 1)
         )
+        # Head E: Goal (extra receiver class)
+        self.head_goal = nn.Linear(d_model, 1)
 
     def forward(self, x):
         """
@@ -93,7 +95,7 @@ class SoccerPolicy(nn.Module):
             pred_vel: [Batch, K, num_attackers, 2]
             pred_pass: [Batch, 1]
             pred_passer: [Batch, num_attackers]
-            pred_receiver: [Batch, num_attackers]
+            pred_receiver: [Batch, num_attackers + 1]  (last index = goal)
         """
         B, N, F = x.shape
         if N != self.num_agents:
@@ -120,6 +122,8 @@ class SoccerPolicy(nn.Module):
         pred_vel = pred_vel.view(B, self.num_attackers, self.move_horizon, 2).permute(0, 2, 1, 3).contiguous()
         pred_pass = self.head_pass(global_feat)  # [B, 1]
         pred_passer = self.head_passer(teammate_feat).squeeze(-1)  # [B, A]
-        pred_receiver = self.head_receiver(teammate_feat).squeeze(-1)  # [B, A]
+        pred_receiver_team = self.head_receiver(teammate_feat).squeeze(-1)  # [B, A]
+        pred_receiver_goal = self.head_goal(global_feat)  # [B, 1]
+        pred_receiver = torch.cat([pred_receiver_team, pred_receiver_goal], dim=1)  # [B, A+1]
 
         return pred_vel, pred_pass, pred_passer, pred_receiver

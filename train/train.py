@@ -1,3 +1,5 @@
+import argparse
+from types import SimpleNamespace
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -22,21 +24,25 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 # ===========================
 CONFIG = {
     "project_name": "soccer-behavior-cloning",
-    "run_name": "transformer_pass_global_skillcorner10",
+    "run_name": "transformer_pass_pointsim_3v3",
     
     # Paths
-    "data_path": os.path.join(PROJECT_ROOT, "data", "skillcorner_processed", "npz"),
+    "data_path": os.path.join(PROJECT_ROOT, "data", "point_sim_3v3", "npz"),
     "save_dir": os.path.join(PROJECT_ROOT, "checkpoints"),
+    "resume": None,
+    "ckpt_dir": None,
     
     # Training
     "epochs": 50,
-    "batch_size": 256,
+    "batch_size": 512,
     "lr": 2e-4,
     "weight_decay": 1e-4,
     "val_ratio": 0.1,
     "seed": 42,
     "split_by_file": True,
     "use_weighted_sampler": False,
+    "sampler_alpha": 0.5,
+    "weight_cap": 15.0,
     
     # Model
     "d_model": 128,
@@ -57,14 +63,15 @@ CONFIG = {
     "move_cos_weight": 0.5,     # 方向一致性权重
     "move_mag_weight": 0.5,     # 速度幅值误差权重
     "move_dir_speed_thr": 0.5,  # 仅在目标速度>阈值时计算方向损失
-    "move_pos_ade_weight": 0.5,  # 位置 ADE 权重 (由速度积分)
-    "move_pos_fde_weight": 0.5,  # 位置 FDE 权重 (由速度积分)
+    "move_pos_ade_weight": 0.1,  # 位置 ADE 权重 (由速度积分)
+    "move_pos_fde_weight": 0.1,  # 位置 FDE 权重 (由速度积分)
     "move_pos_scale_x": 52.5,    # normalized x -> meters
     "move_pos_scale_y": 34.0,    # normalized y -> meters
-    "use_move_residual": True,   # 预测残差速度 (对 last-frame velocity)
+    "use_move_residual": False,  # 预测残差速度 (对 last-frame velocity)
     "lambda_pass": 0.0,
     "lambda_passer": 0.0,
     "lambda_receiver": 0.0,
+    "goal_class_weight": 10.0,
     
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     
@@ -73,8 +80,161 @@ CONFIG = {
     "trigger_dist_thr": 3.0,  # 用于距离计算的阈值（与数据处理对齐）
 
     # Scheduler
-    "patience": 15        # 【关键修改】增加耐心值
+    "patience": 15,        # 【关键修改】增加耐心值
+    "freeze_move": False,
+    "freeze_backbone": False,
+    "best_metric": None,
+    "no_wandb": False,
 }
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train SoccerPolicy (3v3)")
+    # data/save
+    parser.add_argument("--data_path", type=str, default=None)
+    parser.add_argument("--ckpt_dir", type=str, default=None)
+    parser.add_argument("--run_name", type=str, default=None)
+    # training mode
+    parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument("--train_move_only", type=int, choices=[0, 1], default=None)
+    parser.add_argument("--freeze_move", type=int, choices=[0, 1], default=None)
+    parser.add_argument("--freeze_backbone", type=int, choices=[0, 1], default=None)
+    parser.add_argument("--lambda_move", type=float, default=None)
+    parser.add_argument("--lambda_pass", type=float, default=None)
+    parser.add_argument("--lambda_passer", type=float, default=None)
+    parser.add_argument("--lambda_receiver", type=float, default=None)
+    parser.add_argument("--goal_class_weight", type=float, default=None)
+    # imbalance
+    parser.add_argument("--use_weighted_sampler", type=int, choices=[0, 1], default=None)
+    parser.add_argument("--sampler_alpha", type=float, default=None)
+    parser.add_argument("--weight_cap", type=float, default=None)
+    parser.add_argument("--auto_pos_weight", type=int, choices=[0, 1], default=None)
+    parser.add_argument("--pos_weight", type=float, default=None)
+    # hyperparams
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--weight_decay", type=float, default=None)
+    parser.add_argument("--val_ratio", type=float, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--split_by_file", type=int, choices=[0, 1], default=None)
+    parser.add_argument("--obs_history", type=int, default=None)
+    parser.add_argument("--move_horizon", type=int, default=None)
+    # model
+    parser.add_argument("--d_model", type=int, default=None)
+    parser.add_argument("--nhead", type=int, default=None)
+    parser.add_argument("--num_layers", type=int, default=None)
+    parser.add_argument("--dropout", type=float, default=None)
+    # loss shaping
+    parser.add_argument("--move_speed_thr", type=float, default=None)
+    parser.add_argument("--move_high_weight", type=float, default=None)
+    parser.add_argument("--move_cos_weight", type=float, default=None)
+    parser.add_argument("--move_mag_weight", type=float, default=None)
+    parser.add_argument("--move_dir_speed_thr", type=float, default=None)
+    parser.add_argument("--move_pos_ade_weight", type=float, default=None)
+    parser.add_argument("--move_pos_fde_weight", type=float, default=None)
+    parser.add_argument("--move_pos_scale_x", type=float, default=None)
+    parser.add_argument("--move_pos_scale_y", type=float, default=None)
+    parser.add_argument("--use_move_residual", type=int, choices=[0, 1], default=None)
+    # passer mask
+    parser.add_argument("--passer_topk", type=int, default=None)
+    parser.add_argument("--trigger_dist_thr", type=float, default=None)
+    # misc
+    parser.add_argument("--best_metric", type=str, default=None)
+    parser.add_argument("--no_wandb", action="store_true")
+    return parser.parse_args()
+
+
+def build_config(args):
+    cfg = CONFIG.copy()
+    # direct overrides from args (None means keep)
+    for k in [
+        "data_path", "run_name", "epochs", "batch_size", "lr", "weight_decay", "val_ratio",
+        "seed", "obs_history", "move_horizon", "d_model", "nhead", "num_layers", "dropout",
+        "move_speed_thr", "move_high_weight", "move_cos_weight", "move_mag_weight",
+        "move_dir_speed_thr", "move_pos_ade_weight", "move_pos_fde_weight",
+        "move_pos_scale_x", "move_pos_scale_y", "passer_topk", "trigger_dist_thr",
+        "sampler_alpha", "weight_cap", "goal_class_weight"
+    ]:
+        v = getattr(args, k, None)
+        if v is not None:
+            cfg[k] = v
+
+    if args.ckpt_dir is not None:
+        cfg["save_dir"] = args.ckpt_dir
+    if args.resume is not None:
+        cfg["resume"] = args.resume
+    if args.no_wandb:
+        cfg["no_wandb"] = True
+
+    # bool-ish overrides
+    if args.split_by_file is not None:
+        cfg["split_by_file"] = bool(args.split_by_file)
+    if args.train_move_only is not None:
+        cfg["train_move_only"] = bool(args.train_move_only)
+    if args.freeze_move is not None:
+        cfg["freeze_move"] = bool(args.freeze_move)
+    if args.freeze_backbone is not None:
+        cfg["freeze_backbone"] = bool(args.freeze_backbone)
+    if args.use_weighted_sampler is not None:
+        cfg["use_weighted_sampler"] = bool(args.use_weighted_sampler)
+    if args.auto_pos_weight is not None:
+        cfg["auto_pos_weight"] = bool(args.auto_pos_weight)
+    if args.use_move_residual is not None:
+        cfg["use_move_residual"] = bool(args.use_move_residual)
+
+    # lambda overrides
+    for k in ["lambda_move", "lambda_pass", "lambda_passer", "lambda_receiver"]:
+        v = getattr(args, k, None)
+        if v is not None:
+            cfg[k] = v
+
+    # pos_weight override
+    if args.pos_weight is not None:
+        cfg["pos_weight"] = args.pos_weight
+
+    # Route defaults
+    if cfg.get("resume"):
+        # Route A defaults (only if not explicitly set)
+        if args.train_move_only is None:
+            cfg["train_move_only"] = False
+        if args.freeze_move is None:
+            cfg["freeze_move"] = True
+        if args.freeze_backbone is None:
+            cfg["freeze_backbone"] = False
+        if args.lambda_move is None:
+            cfg["lambda_move"] = 0.0
+        if args.lambda_pass is None:
+            cfg["lambda_pass"] = 1.0
+        if args.lambda_passer is None:
+            cfg["lambda_passer"] = 1.0
+        if args.lambda_receiver is None:
+            cfg["lambda_receiver"] = 1.0
+        if args.use_weighted_sampler is None:
+            cfg["use_weighted_sampler"] = True
+        if args.auto_pos_weight is None:
+            cfg["auto_pos_weight"] = False
+        if args.pos_weight is None:
+            cfg["pos_weight"] = 1.0
+    else:
+        # Route B defaults
+        if args.train_move_only is None:
+            cfg["train_move_only"] = False
+        if args.lambda_pass is None:
+            cfg["lambda_pass"] = 0.3
+        if args.lambda_passer is None:
+            cfg["lambda_passer"] = 0.8
+        if args.lambda_receiver is None:
+            cfg["lambda_receiver"] = 0.8
+        if args.use_weighted_sampler is None:
+            cfg["use_weighted_sampler"] = False
+
+    if args.best_metric is not None:
+        cfg["best_metric"] = args.best_metric
+    else:
+        cfg["best_metric"] = "val_loss" if cfg["train_move_only"] else "f1_possession"
+
+    return cfg
 
 def metrics_from_logits(logits, targets, prob_threshold=0.5):
     """基于全量 logits/targets 计算 Precision/Recall/F1"""
@@ -131,7 +291,9 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
     tgt_pos_abs = pos0_m.unsqueeze(1) + torch.cumsum(move_seq * dt, dim=1)
 
     vec_mse_sum = torch.tensor(0.0, device=device)
+    vec_denom = torch.tensor(0.0, device=device)
     mag_sum = torch.tensor(0.0, device=device)
+    mag_denom = torch.tensor(0.0, device=device)
     dir_sum = torch.tensor(0.0, device=device)
     dir_denom = torch.tensor(0.0, device=device)
 
@@ -165,8 +327,10 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
         weight = (1.0 + high * config.move_high_weight) * move_mask[:, k : k + 1]
         vec_err = (pred_step - move_seq[:, k]) ** 2
         vec_mse_sum = vec_mse_sum + (vec_err.sum(dim=2) * weight).sum()
+        vec_denom = vec_denom + weight.expand(-1, n_att).sum()
 
         mag_sum = mag_sum + (torch.abs(speed_p - speed_t) * move_mask[:, k : k + 1]).sum()
+        mag_denom = mag_denom + move_mask[:, k : k + 1].expand(-1, n_att).sum()
 
         pred_norm = pred_step / (speed_p.unsqueeze(-1) + 1e-8)
         tgt_norm = move_seq[:, k] / (speed_t.unsqueeze(-1) + 1e-8)
@@ -210,8 +374,8 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
 
         obs_roll = torch.cat([obs_roll[:, :, 3:], new_frame], dim=2)
 
-    vec_mse = vec_mse_sum / (step_mask.sum() + 1e-8)
-    mag_loss = mag_sum / (step_mask.sum() + 1e-8)
+    vec_mse = vec_mse_sum / (vec_denom + 1e-8)
+    mag_loss = mag_sum / (mag_denom + 1e-8)
     if dir_denom > 0:
         dir_loss = dir_sum / (dir_denom + 1e-8)
     else:
@@ -219,8 +383,9 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
 
     pred_pos_abs = torch.stack(pred_pos_steps, dim=1)  # [B, K, A, 2]
     pos_err = torch.norm(pred_pos_abs - tgt_pos_abs, dim=3)
-    ade = (pos_err * step_mask).sum() / (step_mask.sum() + 1e-8)
-    fde = (pos_err[:, -1] * step_mask[:, -1]).sum() / (step_mask[:, -1].sum() + 1e-8)
+    pos_denom = step_mask.expand(-1, -1, n_att).sum()
+    ade = (pos_err * step_mask).sum() / (pos_denom + 1e-8)
+    fde = (pos_err[:, -1] * step_mask[:, -1]).sum() / (step_mask[:, -1].sum() * n_att + 1e-8)
 
     total = (
         vec_mse
@@ -231,14 +396,21 @@ def compute_move_loss(model, obs, move_seq, move_mask, dt_seq, config):
     )
     return total, vec_mse, mag_loss, dir_loss, ade, fde
 
-def train():
-    # 1. Init WandB
-    wandb.init(project=CONFIG["project_name"], name=CONFIG["run_name"], config=CONFIG)
-    config = wandb.config
+def train(config_dict):
+    use_wandb = not config_dict.get("no_wandb", False)
+    if use_wandb:
+        wandb.init(project=config_dict["project_name"], name=config_dict["run_name"], config=config_dict)
+        config = SimpleNamespace(**wandb.config)
+    else:
+        config = SimpleNamespace(**config_dict)
     
     os.makedirs(config.save_dir, exist_ok=True)
-    run_name = getattr(wandb.run, "name", None) or "run"
-    run_id = getattr(wandb.run, "id", "runid")
+    if use_wandb:
+        run_name = getattr(wandb.run, "name", None) or "run"
+        run_id = getattr(wandb.run, "id", "runid")
+    else:
+        run_name = config.run_name
+        run_id = "runid"
     run_tag = f"{run_name}_{run_id}".replace("/", "_")
     run_save_dir = os.path.join(config.save_dir, run_tag)
     os.makedirs(run_save_dir, exist_ok=True)
@@ -278,13 +450,41 @@ def train():
 
     if config.use_weighted_sampler:
         print("Computing Sampler Weights (Solving Class Imbalance)...")
-        train_weights = train_set.get_sample_weights()
-        sampler = WeightedRandomSampler(weights=train_weights, num_samples=len(train_weights), replacement=True)
+        if hasattr(train_set, "get_sample_weights"):
+            train_weights = train_set.get_sample_weights()
+        elif hasattr(train_set, "dataset") and hasattr(train_set.dataset, "get_sample_weights"):
+            full = train_set.dataset.get_sample_weights()
+            train_weights = full[train_set.indices]
+        else:
+            raise AttributeError("Dataset missing get_sample_weights for weighted sampler")
+        weights = train_weights.clone().float()
+        if config.sampler_alpha is not None:
+            weights = torch.pow(weights, float(config.sampler_alpha))
+        if config.weight_cap is not None:
+            weights = torch.clamp(weights, max=float(config.weight_cap))
+        sampler = WeightedRandomSampler(weights=weights, num_samples=len(weights), replacement=True)
         train_loader = DataLoader(train_set, batch_size=config.batch_size, sampler=sampler, shuffle=False, num_workers=4, pin_memory=True)
     else:
         train_loader = DataLoader(train_set, batch_size=config.batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
     val_loader = DataLoader(val_set, batch_size=config.batch_size, shuffle=False, num_workers=4)
+
+    def _sanity_check(loader):
+        try:
+            batch = next(iter(loader))
+        except StopIteration:
+            print("[Sanity] Empty dataloader.")
+            return
+        obs, move_seq, move_mask, dt_seq, pass_flag, passer_id, pass_dir, receiver_id = batch
+        obs_xy = obs[..., 0:2]
+        move_speed = torch.norm(move_seq, dim=-1)
+        dt_flat = dt_seq.reshape(-1)
+        print("[Sanity] obs shape:", tuple(obs.shape), "move_seq shape:", tuple(move_seq.shape))
+        print(f"[Sanity] obs_xy range: min={obs_xy.min().item():.3f} max={obs_xy.max().item():.3f}")
+        print(f"[Sanity] dt range: min={dt_flat.min().item():.4f} max={dt_flat.max().item():.4f} mean={dt_flat.mean().item():.4f}")
+        print(f"[Sanity] move speed: min={move_speed.min().item():.3f} max={move_speed.max().item():.3f} mean={move_speed.mean().item():.3f}")
+
+    _sanity_check(train_loader)
 
     # 3. Model
     model = SoccerPolicy(
@@ -298,9 +498,35 @@ def train():
         num_attackers=n_attackers,
     ).to(device)
     
-    wandb.watch(model, log="all", log_freq=100)
+    if use_wandb:
+        wandb.watch(model, log="all", log_freq=100)
     
-    optimizer = optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+    if config.resume:
+        state = torch.load(config.resume, map_location=device)
+        state_dict = state.get("model", state)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing or unexpected:
+            print(f"[Warn] load_state_dict mismatch. Missing={missing} Unexpected={unexpected}")
+
+    if getattr(config, "freeze_move", False):
+        for p in model.head_move.parameters():
+            p.requires_grad = False
+    if getattr(config, "freeze_backbone", False):
+        for p in model.input_proj.parameters():
+            p.requires_grad = False
+        model.agent_pos_embed.requires_grad = False
+        for p in model.transformer.parameters():
+            p.requires_grad = False
+
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    if config.resume:
+        print("[Route A] resume checkpoint:", config.resume)
+    else:
+        print("[Route B] train from scratch")
+    print(f"Trainable params: {trainable_params} / {total_params}")
+
+    optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.lr, weight_decay=config.weight_decay)
     
     # Scheduler: 监控 Val Loss
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=config.patience)
@@ -319,18 +545,25 @@ def train():
         pass_pos_weight = torch.tensor([pos_weight_val]).to(device)
         print(f"Using pos_weight for pass_or_not: {pos_weight_val:.3f}")
         criterion_bce = nn.BCEWithLogitsLoss(pos_weight=pass_pos_weight)
-        criterion_ce = nn.CrossEntropyLoss()
+        criterion_ce_passer = nn.CrossEntropyLoss()
+        receiver_weight = None
+        if config.goal_class_weight is not None and config.goal_class_weight > 0:
+            num_receiver_classes = n_attackers + 1
+            receiver_weight = torch.ones(num_receiver_classes, device=device)
+            receiver_weight[n_attackers] = float(config.goal_class_weight)
+            print(f"Using receiver goal weight: {config.goal_class_weight:.2f} (goal_id={n_attackers})")
+        criterion_ce_receiver = nn.CrossEntropyLoss(weight=receiver_weight) if receiver_weight is not None else nn.CrossEntropyLoss()
     else:
         criterion_bce = None
-        criterion_ce = None
+        criterion_ce_passer = None
+        criterion_ce_receiver = None
 
     # 4. Training Loop
-    if config.train_move_only:
+    if config.best_metric == "val_loss":
         best_val_metric = float("inf")
-        best_metric_name = "val_loss"
     else:
         best_val_metric = -float("inf")
-        best_metric_name = "f1"
+    best_metric_name = config.best_metric
 
     for epoch in range(config.epochs):
         model.train()
@@ -384,9 +617,17 @@ def train():
             topk_mask.scatter_(1, topk_idx, True)
 
             # --- Losses ---
-            loss_move, loss_move_vec, loss_move_mag, loss_move_dir, loss_move_ade, loss_move_fde = compute_move_loss(
-                model, obs, move_seq, move_mask, dt_seq, config
-            )
+            if config.lambda_move > 0:
+                loss_move, loss_move_vec, loss_move_mag, loss_move_dir, loss_move_ade, loss_move_fde = compute_move_loss(
+                    model, obs, move_seq, move_mask, dt_seq, config
+                )
+            else:
+                loss_move = torch.tensor(0.0, device=device)
+                loss_move_vec = torch.tensor(0.0, device=device)
+                loss_move_mag = torch.tensor(0.0, device=device)
+                loss_move_dir = torch.tensor(0.0, device=device)
+                loss_move_ade = torch.tensor(0.0, device=device)
+                loss_move_fde = torch.tensor(0.0, device=device)
             # pass_or_not 仅在有人接近球时计算
             if not config.train_move_only:
                 possession_mask = (dist.min(dim=1).values < config.trigger_dist_thr)
@@ -409,7 +650,7 @@ def train():
                         logits = pred_passer[valid_passer]
                         mask_logits = topk_mask[valid_passer]
                         logits = logits.masked_fill(~mask_logits, -1e9)
-                        loss_passer = criterion_ce(logits, passer_id[valid_passer])
+                        loss_passer = criterion_ce_passer(logits, passer_id[valid_passer])
                     else:
                         loss_passer = torch.tensor(0.0, device=device)
                 else:
@@ -421,7 +662,7 @@ def train():
             if not config.train_move_only:
                 recv_mask = (pass_flag > 0.5) & (receiver_id >= 0)
                 if recv_mask.any():
-                    loss_receiver = criterion_ce(pred_receiver[recv_mask], receiver_id[recv_mask])
+                    loss_receiver = criterion_ce_receiver(pred_receiver[recv_mask], receiver_id[recv_mask])
                 else:
                     loss_receiver = torch.tensor(0.0, device=device)
             else:
@@ -434,9 +675,13 @@ def train():
             
             # Backward
             optimizer.zero_grad()
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            if total_loss.requires_grad:
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+            else:
+                # no valid loss in this batch (e.g., no possession/pass and lambda_move==0)
+                continue
             
             # Record
             log_loss_move.append(loss_move.item())
@@ -466,6 +711,8 @@ def train():
         # 收集 pass logits
         all_val_logits = []
         all_val_targets = []
+        all_val_logits_pos = []
+        all_val_targets_pos = []
 
         # 统计 move loss (val)
         val_loss_move = []
@@ -514,9 +761,17 @@ def train():
                 topk_mask.scatter_(1, topk_idx, True)
 
                 # 计算 val loss (同训练配方)
-                loss_move, loss_move_vec, loss_move_mag, loss_move_dir, loss_move_ade, loss_move_fde = compute_move_loss(
-                    model, obs, move_seq, move_mask, dt_seq, config
-                )
+                if config.lambda_move > 0:
+                    loss_move, loss_move_vec, loss_move_mag, loss_move_dir, loss_move_ade, loss_move_fde = compute_move_loss(
+                        model, obs, move_seq, move_mask, dt_seq, config
+                    )
+                else:
+                    loss_move = torch.tensor(0.0, device=device)
+                    loss_move_vec = torch.tensor(0.0, device=device)
+                    loss_move_mag = torch.tensor(0.0, device=device)
+                    loss_move_dir = torch.tensor(0.0, device=device)
+                    loss_move_ade = torch.tensor(0.0, device=device)
+                    loss_move_fde = torch.tensor(0.0, device=device)
                 val_loss_move.append(loss_move.item())
                 val_loss_move_vec.append(loss_move_vec.item())
                 val_loss_move_mag.append(loss_move_mag.item())
@@ -543,10 +798,11 @@ def train():
                             logits = pred_passer[valid_passer]
                             mask_logits = topk_mask[valid_passer]
                             logits = logits.masked_fill(~mask_logits, -1e9)
-                            loss_passer = criterion_ce(logits, passer_id[valid_passer])
+                            loss_passer = criterion_ce_passer(logits, passer_id[valid_passer])
 
-                            # passer acc
-                            pred_idx = torch.argmax(pred_passer[valid_passer], dim=1)
+                            # passer acc (masked logits, consistent with loss)
+                            masked_logits = pred_passer[valid_passer].masked_fill(~topk_mask[valid_passer], -1e9)
+                            pred_idx = torch.argmax(masked_logits, dim=1)
                             passer_correct += (pred_idx == passer_id[valid_passer]).sum().item()
                             passer_total += valid_passer.sum().item()
                         else:
@@ -560,7 +816,7 @@ def train():
                 if not config.train_move_only:
                     recv_mask = (pass_flag > 0.5) & (receiver_id >= 0)
                     if recv_mask.any():
-                        loss_receiver = criterion_ce(pred_receiver[recv_mask], receiver_id[recv_mask])
+                        loss_receiver = criterion_ce_receiver(pred_receiver[recv_mask], receiver_id[recv_mask])
                         pred_recv_idx = torch.argmax(pred_receiver[recv_mask], dim=1)
                         recv_correct += (pred_recv_idx == receiver_id[recv_mask]).sum().item()
                         recv_total += recv_mask.sum().item()
@@ -579,6 +835,10 @@ def train():
                 if not config.train_move_only:
                     all_val_logits.append(pred_pass.detach().cpu())
                     all_val_targets.append(pass_flag.detach().cpu())
+                    if possession_mask.any():
+                        mask_cpu = possession_mask.detach().cpu()
+                        all_val_logits_pos.append(pred_pass.detach().cpu()[mask_cpu])
+                        all_val_targets_pos.append(pass_flag.detach().cpu()[mask_cpu])
 
         # Aggregates
         avg_logit_train = np.mean(debug_logits)
@@ -594,9 +854,17 @@ def train():
             # --- Threshold Analysis (Pass/Not) ---
             all_val_logits = torch.cat(all_val_logits).view(-1)
             all_val_targets = torch.cat(all_val_targets).view(-1)
-
             # 全量聚合指标 (Threshold=0.5)
-            p, r, f1, tp, fp, fn = metrics_from_logits(all_val_logits, all_val_targets, prob_threshold=0.5)
+            p, r, f1_full, tp, fp, fn = metrics_from_logits(all_val_logits, all_val_targets, prob_threshold=0.5)
+
+            if all_val_logits_pos:
+                all_val_logits_pos = torch.cat(all_val_logits_pos).view(-1)
+                all_val_targets_pos = torch.cat(all_val_targets_pos).view(-1)
+                p_pos, r_pos, f1_pos, tp_pos, fp_pos, fn_pos = metrics_from_logits(
+                    all_val_logits_pos, all_val_targets_pos, prob_threshold=0.5
+                )
+            else:
+                p_pos = r_pos = f1_pos = tp_pos = fp_pos = fn_pos = float("nan")
 
             passer_acc = passer_correct / max(passer_total, 1)
             recv_acc = recv_correct / max(recv_total, 1)
@@ -606,6 +874,8 @@ def train():
             print(f" > Logit Std (Val):    {all_val_logits.std():.2f}")
             print(f" > Logit Max (Val):    {all_val_logits.max():.2f}")
             print(f" > TP/FP/FN (Val@0.5): {tp}/{fp}/{fn}")
+            print(f" > F1_possession: {f1_pos:.4f} (P={p_pos:.4f}, R={r_pos:.4f})")
+            print(f" > F1_full:       {f1_full:.4f} (P={p:.4f}, R={r:.4f})")
             print(f" > Passer Acc: {passer_acc:.4f} | Receiver Acc: {recv_acc:.4f}")
 
             test_thresholds = [0.001, 0.005, 0.01, 0.05, 0.1]
@@ -613,7 +883,9 @@ def train():
                 p_t, r_t, f1_t, tp_t, fp_t, fn_t = metrics_from_logits(all_val_logits, all_val_targets, prob_threshold=t)
                 print(f"   [Prob {t:>5}] Recall: {r_t:.4f} | Prec: {p_t:.4f} | F1: {f1_t:.4f} | TP/FP/FN: {tp_t}/{fp_t}/{fn_t}")
         else:
-            p = r = f1 = tp = fp = fn = float("nan")
+            p = r = f1_full = tp = fp = fn = float("nan")
+            f1_pos = float("nan")
+            p_pos = r_pos = float("nan")
             passer_acc = recv_acc = float("nan")
             print(f"\n[Epoch {epoch+1} Analysis]")
             print(f" > Mean Logit (Train): {avg_logit_train:.2f}")
@@ -621,7 +893,8 @@ def train():
             print(f" > Val Move: {avg_val_move:.4f} | Vec {avg_val_move_vec:.4f} | Mag {avg_val_move_mag:.4f} | Dir {avg_val_move_dir:.4f}")
 
         # Logging to WandB
-        wandb.log({
+        if use_wandb:
+            wandb.log({
             "epoch": epoch + 1,
             "train/loss_move": np.mean(log_loss_move),
             "train/loss_move_vec": np.mean(log_loss_move_vec),
@@ -642,30 +915,48 @@ def train():
             "val/loss_move_dir": avg_val_move_dir,
             "val/loss_move_ade": avg_val_move_ade,
             "val/loss_move_fde": avg_val_move_fde,
-            "val/precision": p,
-            "val/recall": r,
+            "val/precision_full": p,
+            "val/recall_full": r,
+            "val/f1_full": f1_full,
+            "val/precision_pos": p_pos,
+            "val/recall_pos": r_pos,
+            "val/f1_possession": f1_pos,
             "val/passer_acc": passer_acc,
             "val/receiver_acc": recv_acc,
             "lr": optimizer.param_groups[0]['lr']
-        })
+            })
 
         # Scheduler Step
         scheduler.step(avg_val_loss)
 
         # Save Best Model
-        current_metric = avg_val_loss if config.train_move_only else f1
-        improved = (current_metric < best_val_metric) if config.train_move_only else (current_metric > best_val_metric)
+        if config.best_metric == "val_loss":
+            current_metric = avg_val_loss
+            improved = current_metric < best_val_metric
+        elif config.best_metric == "f1_possession":
+            current_metric = f1_pos
+            improved = current_metric > best_val_metric
+        elif config.best_metric == "f1_full":
+            current_metric = f1_full
+            improved = current_metric > best_val_metric
+        else:
+            current_metric = avg_val_loss if config.train_move_only else f1_pos
+            improved = (current_metric < best_val_metric) if config.train_move_only else (current_metric > best_val_metric)
         if improved:
             best_val_metric = current_metric
             save_path = os.path.join(run_save_dir, "best_model.pth")
             torch.save(model.state_dict(), save_path)
-            wandb.save(save_path)
-            if config.train_move_only:
-                print(f" [Saved Best Model] val_loss: {best_val_metric:.4f}")
-            else:
-                print(f" [Saved Best Model] F1: {best_val_metric:.4f}")
+            if use_wandb:
+                wandb.save(save_path)
+            print(f" [Saved Best Model] {config.best_metric}: {best_val_metric:.4f}")
 
-    wandb.finish()
+    if use_wandb:
+        wandb.finish()
 
 if __name__ == "__main__":
-    train()
+    args = parse_args()
+    cfg = build_config(args)
+    print("Final Config:")
+    for k in sorted(cfg.keys()):
+        print(f"  {k}: {cfg[k]}")
+    train(cfg)

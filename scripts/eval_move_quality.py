@@ -53,7 +53,59 @@ def _normalize_dt(dt_val, n_frames: int) -> np.ndarray:
     return np.concatenate([dt_arr, pad], axis=0)
 
 
-def _load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _maybe_scalar(val):
+    if val is None:
+        return None
+    try:
+        if hasattr(val, "item"):
+            return float(val.item())
+    except Exception:
+        pass
+    if isinstance(val, np.ndarray):
+        if val.size == 0:
+            return None
+        return float(val.reshape(-1)[0])
+    try:
+        return float(val)
+    except Exception:
+        return None
+
+
+def _infer_field_scales(data_fields, move_pos_scale_x, move_pos_scale_y, field_L, field_W):
+    if move_pos_scale_x is not None and move_pos_scale_y is not None:
+        return float(move_pos_scale_x), float(move_pos_scale_y)
+
+    if field_L is None:
+        for key in ("field_L", "field_length", "pitch_length", "L"):
+            if data_fields is not None and key in data_fields:
+                field_L = _maybe_scalar(data_fields.get(key))
+                break
+    if field_W is None:
+        for key in ("field_W", "field_width", "pitch_width", "W"):
+            if data_fields is not None and key in data_fields:
+                field_W = _maybe_scalar(data_fields.get(key))
+                break
+
+    if field_L is not None and field_W is not None:
+        return float(field_L) / 2.0, float(field_W) / 2.0
+
+    if move_pos_scale_x is not None:
+        return float(move_pos_scale_x), float(move_pos_scale_y or move_pos_scale_x)
+
+    return 52.5, 34.0
+
+
+def _norm_to_metric(pos_norm: np.ndarray, scale_x: float, scale_y: float, origin: str) -> np.ndarray:
+    pos = pos_norm.copy()
+    pos[..., 0] = pos[..., 0] * scale_x
+    pos[..., 1] = pos[..., 1] * scale_y
+    if origin == "corner":
+        pos[..., 0] += scale_x
+        pos[..., 1] += scale_y
+    return pos
+
+
+def _load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     data = np.load(fp)
     obs = data["obs"]
     if "act_move" in data:
@@ -81,7 +133,21 @@ def _load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
                 dt_safe = np.clip(dt, 1e-6, None)
                 move = move / dt_safe[:, None, None]
 
-    return obs, move, dt
+    meta = {
+        "pass_flag": data.get("pass_flag", None),
+        "passer_id": data.get("passer_id", None),
+        "receiver_id": data.get("receiver_id", None),
+        "field_L": _maybe_scalar(data.get("field_L", None)),
+        "field_W": _maybe_scalar(data.get("field_W", None)),
+        "field_length": _maybe_scalar(data.get("field_length", None)),
+        "field_width": _maybe_scalar(data.get("field_width", None)),
+        "pitch_length": _maybe_scalar(data.get("pitch_length", None)),
+        "pitch_width": _maybe_scalar(data.get("pitch_width", None)),
+        "L": _maybe_scalar(data.get("L", None)),
+        "W": _maybe_scalar(data.get("W", None)),
+    }
+    data.close()
+    return obs, move, dt, meta
 
 
 def _stack_obs(obs: np.ndarray, k: int) -> np.ndarray:
@@ -99,16 +165,15 @@ def _stack_obs(obs: np.ndarray, k: int) -> np.ndarray:
     return stacked
 
 
-def _to_metric_pos(obs: np.ndarray, scale_x: float, scale_y: float) -> np.ndarray:
-    # obs: [T, 23, 3] in normalized coords
-    pos = obs[:, :11, 0:2].copy()
-    pos[:, :, 0] = pos[:, :, 0] * scale_x + scale_x
-    pos[:, :, 1] = pos[:, :, 1] * scale_y + scale_y
+def _to_metric_pos(obs: np.ndarray, scale_x: float, scale_y: float, origin: str, n_att: int) -> np.ndarray:
+    # obs: [T, N, 3] in normalized coords
+    pos = obs[:, :n_att, 0:2].copy()
+    pos = _norm_to_metric(pos, scale_x, scale_y, origin)
     return pos
 
 
 def _compute_metrics(pred: np.ndarray, tgt: np.ndarray, speed_thr: float, dir_speed_thr: float) -> Dict[str, float]:
-    # pred/tgt: [T, 11, 2]
+    # pred/tgt: [T, A, 2]
     diff = pred - tgt
     mse = float(np.mean(diff ** 2))
 
@@ -217,22 +282,17 @@ def eval_files(
     use_move_residual: bool,
     move_pos_scale_x: float,
     move_pos_scale_y: float,
+    coord_origin: str,
+    field_L: float,
+    field_W: float,
+    eval_pass: bool,
+    pass_thr: float,
+    topk: int,
 ):
     state = torch.load(checkpoint, map_location=device)
     state_dict = state.get("model", state)
     move_horizon = _infer_move_horizon(state_dict)
-    model = SoccerPolicy(
-        d_model=d_model,
-        nhead=nhead,
-        num_layers=num_layers,
-        dropout=dropout,
-        input_dim=3 * obs_history,
-        move_horizon=move_horizon,
-    ).to(device)
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
-    if missing or unexpected:
-        print(f"[Warn] load_state_dict mismatch. Missing={missing} Unexpected={unexpected}")
-    model.eval()
+    model = None
 
     # aggregate
     agg = {
@@ -247,29 +307,65 @@ def eval_files(
         "baseline_last_mse": 0.0,
     }
 
+    pass_tp = pass_fp = pass_fn = 0
+    passer_top1 = passer_topk = passer_total = 0
+    receiver_top1 = receiver_topk = receiver_total = 0
+
     for fp in files:
-        obs, move, dt = _load_npz(fp)
+        obs, move, dt, meta = _load_npz(fp)
         if max_frames > 0:
             obs = obs[:max_frames]
             move = move[:max_frames]
             dt = dt[:max_frames]
 
+        n_agents = obs.shape[1]
+        n_att = move.shape[1]
+        if model is None:
+            model = SoccerPolicy(
+                d_model=d_model,
+                nhead=nhead,
+                num_layers=num_layers,
+                dropout=dropout,
+                input_dim=3 * obs_history,
+                move_horizon=move_horizon,
+                num_agents=n_agents,
+                num_attackers=n_att,
+            ).to(device)
+            missing, unexpected = model.load_state_dict(state_dict, strict=False)
+            if missing or unexpected:
+                print(f"[Warn] load_state_dict mismatch. Missing={missing} Unexpected={unexpected}")
+            model.eval()
+
+        scale_x, scale_y = _infer_field_scales(
+            meta, move_pos_scale_x, move_pos_scale_y, field_L, field_W
+        )
+
         stacked = _stack_obs(obs, obs_history)
         t = stacked.shape[0]
         base_vel = None
         if use_move_residual and obs_history >= 2:
-            scale = np.array([move_pos_scale_x, move_pos_scale_y], dtype=np.float32)
-            pos_last = stacked[:, :11, (obs_history - 1) * 3 : (obs_history - 1) * 3 + 2]
-            pos_prev = stacked[:, :11, (obs_history - 2) * 3 : (obs_history - 2) * 3 + 2]
+            pos_last = stacked[:, :n_att, (obs_history - 1) * 3 : (obs_history - 1) * 3 + 2]
+            pos_prev = stacked[:, :n_att, (obs_history - 2) * 3 : (obs_history - 2) * 3 + 2]
+            pos_last_m = _norm_to_metric(pos_last, scale_x, scale_y, coord_origin)
+            pos_prev_m = _norm_to_metric(pos_prev, scale_x, scale_y, coord_origin)
             dt_safe = np.clip(dt, 1e-6, None).reshape(-1, 1, 1)
-            base_vel = (pos_last * scale - pos_prev * scale) / dt_safe
+            base_vel = (pos_last_m - pos_prev_m) / dt_safe
         preds = []
+        pass_logits = []
+        passer_logits = []
+        receiver_logits = []
         with torch.no_grad():
             for i in range(0, t, batch_size):
                 batch = torch.from_numpy(stacked[i:i + batch_size]).float().to(device)
-                pred_vel, _, _, _ = model(batch)
+                pred_vel, pred_pass, pred_passer, pred_receiver = model(batch)
                 preds.append(pred_vel.cpu().numpy())
+                pass_logits.append(pred_pass.cpu().numpy())
+                passer_logits.append(pred_passer.cpu().numpy())
+                receiver_logits.append(pred_receiver.cpu().numpy())
         pred_vel = np.concatenate(preds, axis=0)
+        pred_pass = np.concatenate(pass_logits, axis=0).reshape(-1)
+        pred_passer = np.concatenate(passer_logits, axis=0)
+        pred_receiver = np.concatenate(receiver_logits, axis=0)
         # If multi-step, use step-0 for one-step metrics (consistent with act_move)
         if pred_vel.ndim == 4:
             pred_vel_step0 = pred_vel[:, 0]
@@ -280,7 +376,7 @@ def eval_files(
 
         metrics = _compute_metrics(pred_vel_step0, move, speed_thr, dir_speed_thr)
         base = _baseline_mse(move)
-        pos = _to_metric_pos(obs, move_pos_scale_x, move_pos_scale_y)
+        pos = _to_metric_pos(obs, scale_x, scale_y, coord_origin, n_att)
         ade, fde = _multistep_ade_fde(pred_vel_step0, pos, dt, horizon)
 
         n = move.shape[0] * move.shape[1]
@@ -304,6 +400,39 @@ def eval_files(
         print(f"  mid(2-4) mse={metrics['mid(2-4)_mse']:.6f} | cos={metrics['mid(2-4)_cos']:.4f} | |v|err={metrics['mid(2-4)_mag_err']:.4f}")
         print(f"  high(>4) mse={metrics['high(>4)_mse']:.6f} | cos={metrics['high(>4)_cos']:.4f} | |v|err={metrics['high(>4)_mag_err']:.4f}")
 
+        if eval_pass and meta["pass_flag"] is not None:
+            pass_flag = np.asarray(meta["pass_flag"]).reshape(-1)[:t]
+            passer_id = np.asarray(meta["passer_id"]) if meta["passer_id"] is not None else None
+            receiver_id = np.asarray(meta["receiver_id"]) if meta["receiver_id"] is not None else None
+
+            pass_true = pass_flag > 0.5
+            pass_pred = (1.0 / (1.0 + np.exp(-pred_pass))) > pass_thr
+            pass_tp += int(np.logical_and(pass_pred, pass_true).sum())
+            pass_fp += int(np.logical_and(pass_pred, ~pass_true).sum())
+            pass_fn += int(np.logical_and(~pass_pred, pass_true).sum())
+
+            if passer_id is not None:
+                passer_id = passer_id.reshape(-1)[:t]
+                mask = np.logical_and(pass_true, passer_id >= 0)
+                if np.any(mask):
+                    top1 = pred_passer.argmax(axis=1)
+                    passer_top1 += int((top1[mask] == passer_id[mask]).sum())
+                    topk_idx = np.argpartition(-pred_passer, min(topk, pred_passer.shape[1]) - 1, axis=1)[:, :topk]
+                    ok = (topk_idx[mask] == passer_id[mask, None]).any(axis=1)
+                    passer_topk += int(ok.sum())
+                    passer_total += int(mask.sum())
+
+            if receiver_id is not None:
+                receiver_id = receiver_id.reshape(-1)[:t]
+                mask = np.logical_and(pass_true, receiver_id >= 0)
+                if np.any(mask):
+                    top1 = pred_receiver.argmax(axis=1)
+                    receiver_top1 += int((top1[mask] == receiver_id[mask]).sum())
+                    topk_idx = np.argpartition(-pred_receiver, min(topk, pred_receiver.shape[1]) - 1, axis=1)[:, :topk]
+                    ok = (topk_idx[mask] == receiver_id[mask, None]).any(axis=1)
+                    receiver_topk += int(ok.sum())
+                    receiver_total += int(mask.sum())
+
     if agg["count"] > 0:
         for k in ["mse", "cosine", "mag_err", "baseline_zero_mse", "baseline_mean_mse", "baseline_last_mse", "ade", "fde"]:
             agg[k] /= agg["count"]
@@ -313,6 +442,15 @@ def eval_files(
     print(f"|v| err: {agg['mag_err']:.4f}")
     print(f"Baseline MSE (zero/mean/last): {agg['baseline_zero_mse']:.6f} / {agg['baseline_mean_mse']:.6f} / {agg['baseline_last_mse']:.6f}")
     print(f"Multi-step ADE/FDE (K={horizon}): {agg['ade']:.4f} / {agg['fde']:.4f}")
+    if eval_pass and (pass_tp + pass_fp + pass_fn) > 0:
+        precision = pass_tp / max(pass_tp + pass_fp, 1)
+        recall = pass_tp / max(pass_tp + pass_fn, 1)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+        print(f"Pass P/R/F1: {precision:.4f} / {recall:.4f} / {f1:.4f}")
+        if passer_total > 0:
+            print(f"Passer top1/top{topk}: {passer_top1 / passer_total:.4f} / {passer_topk / passer_total:.4f}")
+        if receiver_total > 0:
+            print(f"Receiver top1/top{topk}: {receiver_top1 / receiver_total:.4f} / {receiver_topk / receiver_total:.4f}")
 
 
 def main():
@@ -331,8 +469,14 @@ def main():
     parser.add_argument("--dir_speed_thr", type=float, default=0.5)
     parser.add_argument("--max_frames", type=int, default=0, help="Limit frames per file for quick test")
     parser.add_argument("--use_move_residual", type=int, default=1, help="1 to add base velocity (match training), 0 to use raw head output")
-    parser.add_argument("--move_pos_scale_x", type=float, default=52.5)
-    parser.add_argument("--move_pos_scale_y", type=float, default=34.0)
+    parser.add_argument("--move_pos_scale_x", type=float, default=None, help="Half-field scale X (meters). Overrides field_L.")
+    parser.add_argument("--move_pos_scale_y", type=float, default=None, help="Half-field scale Y (meters). Overrides field_W.")
+    parser.add_argument("--coord_origin", choices=["center", "corner"], default="center")
+    parser.add_argument("--field_L", type=float, default=None, help="Full field length (meters). If provided, scale_x=field_L/2.")
+    parser.add_argument("--field_W", type=float, default=None, help="Full field width (meters). If provided, scale_y=field_W/2.")
+    parser.add_argument("--eval_pass", action="store_true", help="Evaluate pass heads if pass labels exist")
+    parser.add_argument("--pass_thr", type=float, default=0.5)
+    parser.add_argument("--topk", type=int, default=2)
     args = parser.parse_args()
 
     files = _list_npz_files(args.data)
@@ -356,6 +500,12 @@ def main():
         use_move_residual=bool(args.use_move_residual),
         move_pos_scale_x=args.move_pos_scale_x,
         move_pos_scale_y=args.move_pos_scale_y,
+        coord_origin=args.coord_origin,
+        field_L=args.field_L,
+        field_W=args.field_W,
+        eval_pass=args.eval_pass,
+        pass_thr=args.pass_thr,
+        topk=args.topk,
     )
 
 

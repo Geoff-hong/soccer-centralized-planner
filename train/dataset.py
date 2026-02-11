@@ -204,6 +204,7 @@ class SoccerDataset(Dataset):
             self.file_end_idxs.append(acc)  # end is exclusive
         if acc != self.total_frames:
             raise RuntimeError("文件长度累积与总帧数不一致，数据拼接可能有误")
+        self.file_end_idxs_np = np.asarray(self.file_end_idxs, dtype=np.int64)
 
         print(f"Dataset Ready! Total Frames: {self.total_frames}, Total Pass Frames: {self.n_kicks}")
 
@@ -212,13 +213,10 @@ class SoccerDataset(Dataset):
 
     def __getitem__(self, idx):
         # 确定当前帧所在文件的范围，避免跨场历史堆叠或多步预测
-        # 线性扫描足够快（文件数<=几十），如有性能需求再优化为二分
-        file_start = 0
-        file_end = self.total_frames
-        for s, e in zip(self.file_start_idxs, self.file_end_idxs):
-            if s <= idx < e:
-                file_start, file_end = s, e
-                break
+        # 使用二分 (np.searchsorted) 定位文件范围，避免大量文件时的线性扫描瓶颈
+        file_id = int(np.searchsorted(self.file_end_idxs_np, idx, side="right"))
+        file_start = self.file_start_idxs[file_id]
+        file_end = self.file_end_idxs[file_id]
 
         # 多步目标
         if self.move_horizon == 1:

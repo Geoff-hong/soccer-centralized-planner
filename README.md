@@ -108,6 +108,60 @@ python train.py
 python train_overfit.py
 ```
 
+## ⚽ 3v3 Point-Sim (Shot) Commands
+
+**1) Data generation (shot labels included)**
+```bash
+python3 scripts/point_sim_gen_npz_3v3.py \
+  --out_dir data/point_sim_3v3/shot_npz \
+  --target_frames 1000000 \
+  --max_attempts 50000 \
+  --min_passes 2 \
+  --min_len 50 \
+  --max_def_possess_s 0.5 \
+  --pass_success_window_s 1.2 \
+  --save_tactics \
+  --require_shot_goal
+```
+
+**2) Visualize generated data (random 10 episodes)**
+```bash
+python3 scripts/point_sim_render_gif.py \
+  --data_dir data/point_sim_3v3/shot_npz \
+  --num 10 --shuffle \
+  --out output/point_sim_3v3_10eps.gif
+```
+
+**3) Train move+pass+shot model**
+```bash
+python3 train/train.py \
+  --data_path data/point_sim_3v3/shot_npz \
+  --ckpt_dir runs/3v3_joint \
+  --run_name 3v3_joint_shot \
+  --batch_size 2048 \
+  --train_move_only 0 \
+  --lambda_move 1.0 --lambda_pass 0.3 --lambda_passer 0.8 --lambda_receiver 0.8 \
+  --goal_class_weight 1 \
+  --epochs 300 \
+  --use_weighted_sampler 0 \
+  --auto_pos_weight 1
+```
+
+**4) Visualize model rollout (random 10 episodes)**
+```bash
+python3 scripts/vis_point_sim_3v3.py \
+  --checkpoint runs/3v3_joint/3v3_joint_shot_dpvf49r1/best_model.pth \
+  --data_dir data/point_sim_3v3/shot_npz \
+  --num 10 --shuffle --seed 0 \
+  --gap_frames 5 \
+  --mode full \
+  --obs_history 5 \
+  --pass_thr 0.5 \
+  --recv_control_mult 10 \
+  --recv_control_sec 2.0 \
+  --out output/vis_full_rand10_shot.gif
+```
+
 ## 📊 Data Format
 
 ### Input: Metrica Tracking Data

@@ -12,6 +12,7 @@ checkpoints/
 *.pt
 *.ckpt
 *.safetensors
+runs/
 
 # ===========================
 # Python

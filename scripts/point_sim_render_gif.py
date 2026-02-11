@@ -25,7 +25,8 @@ def _load_episode(npz_path: str):
     pass_flag = data.get("pass_flag", None)
     passer_id = data.get("passer_id", None)
     receiver_id = data.get("receiver_id", None)
-    return obs, float(dt), pass_flag, passer_id, receiver_id
+    template_id = data.get("template_id", None)
+    return obs, float(dt), pass_flag, passer_id, receiver_id, template_id
 
 
 def _generate_episode(seed: int, max_steps: int):
@@ -47,7 +48,7 @@ def _generate_episode(seed: int, max_steps: int):
             obs_list.append(env.get_obs())
             break
 
-    return np.asarray(obs_list, dtype=np.float32), env.dt, None, None, None
+    return np.asarray(obs_list, dtype=np.float32), env.dt, None, None, None, None
 
 
 def _load_multi_episodes(
@@ -56,7 +57,7 @@ def _load_multi_episodes(
     shuffle: bool,
     seed: int,
     gap_frames: int,
-) -> Tuple[np.ndarray, float, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+) -> Tuple[np.ndarray, float, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
     files = [f for f in os.listdir(data_dir) if f.endswith(".npz")]
     files.sort()
     if not files:
@@ -70,11 +71,12 @@ def _load_multi_episodes(
     pass_all = []
     passer_all = []
     receiver_all = []
+    template_all = []
     episode_ids = []
 
     dt_ref = None
     for ep_idx, fname in enumerate(files):
-        obs, dt, pass_flag, passer_id, receiver_id = _load_episode(os.path.join(data_dir, fname))
+        obs, dt, pass_flag, passer_id, receiver_id, template_id = _load_episode(os.path.join(data_dir, fname))
         if dt_ref is None:
             dt_ref = dt
         elif abs(dt - dt_ref) > 1e-6:
@@ -89,6 +91,10 @@ def _load_multi_episodes(
             pass_all.append(np.asarray(pass_flag))
             passer_all.append(np.asarray(passer_id))
             receiver_all.append(np.asarray(receiver_id))
+        if template_id is None:
+            template_all.append(np.full(obs.shape[0], -1, dtype=np.int64))
+        else:
+            template_all.append(np.asarray(template_id, dtype=np.int64))
         episode_ids.append(np.full(obs.shape[0], ep_idx, dtype=np.int64))
 
         if gap_frames > 0 and ep_idx < len(files) - 1:
@@ -97,14 +103,16 @@ def _load_multi_episodes(
             pass_all.append(np.zeros(gap_frames, dtype=np.float32))
             passer_all.append(np.zeros(gap_frames, dtype=np.int64))
             receiver_all.append(np.zeros(gap_frames, dtype=np.int64))
+            template_all.append(np.full(gap_frames, -1, dtype=np.int64))
             episode_ids.append(np.full(gap_frames, ep_idx, dtype=np.int64))
 
     obs_cat = np.concatenate(obs_all, axis=0)
     pass_cat = np.concatenate(pass_all, axis=0) if pass_all else None
     passer_cat = np.concatenate(passer_all, axis=0) if passer_all else None
     receiver_cat = np.concatenate(receiver_all, axis=0) if receiver_all else None
+    template_cat = np.concatenate(template_all, axis=0) if template_all else None
     episode_cat = np.concatenate(episode_ids, axis=0)
-    return obs_cat, dt_ref or 0.1, pass_cat, passer_cat, receiver_cat, episode_cat
+    return obs_cat, dt_ref or 0.1, pass_cat, passer_cat, receiver_cat, template_cat, episode_cat
 
 
 def _render(
@@ -117,6 +125,7 @@ def _render(
     passer_id: Optional[np.ndarray] = None,
     receiver_id: Optional[np.ndarray] = None,
     pass_hold: float = 0.5,
+    template_id: Optional[np.ndarray] = None,
     episode_ids: Optional[np.ndarray] = None,
 ):
     import matplotlib
@@ -140,6 +149,8 @@ def _render(
         passer_id = passer_id[::every]
     if receiver_id is not None:
         receiver_id = receiver_id[::every]
+    if template_id is not None:
+        template_id = template_id[::every]
     if episode_ids is not None:
         episode_ids = episode_ids[::every]
 
@@ -202,6 +213,18 @@ def _render(
         bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.5),
         zorder=7,
     )
+    template_text = ax.text(
+        0.01,
+        0.88,
+        "",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=10,
+        color="white",
+        bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.5),
+        zorder=7,
+    )
     episode_text = ax.text(
         0.99,
         0.98,
@@ -230,8 +253,9 @@ def _render(
         pass_arrow.set_visible(False)
         owner_text.set_text("")
         pass_text.set_text("")
+        template_text.set_text("")
         episode_text.set_text("")
-        return att_dots, def_dots, ball_dot, has_ball_ring, pass_arrow, owner_text, pass_text, episode_text
+        return att_dots, def_dots, ball_dot, has_ball_ring, pass_arrow, owner_text, pass_text, template_text, episode_text
 
     def update(frame_idx):
         frame = obs[frame_idx]
@@ -279,8 +303,12 @@ def _render(
 
         if episode_ids is not None:
             episode_text.set_text(f"EP {int(episode_ids[frame_idx]):03d}")
+        if template_id is not None:
+            tid = int(template_id[frame_idx])
+            name_map = {0: "TRIANGLE", 1: "ONE_TWO", 2: "THROUGH", 3: "CUTBACK"}
+            template_text.set_text(f"Template: {name_map.get(tid, 'N/A')}")
 
-        return att_dots, def_dots, ball_dot, has_ball_ring, pass_arrow, owner_text, pass_text, episode_text
+        return att_dots, def_dots, ball_dot, has_ball_ring, pass_arrow, owner_text, pass_text, template_text, episode_text
 
     anim = animation.FuncAnimation(
         fig, update, init_func=init, frames=len(obs), interval=1000.0 / fps, blit=True
@@ -322,14 +350,14 @@ def main():
     args = parser.parse_args()
 
     if args.data_dir:
-        obs, dt, pass_flag, passer_id, receiver_id, episode_ids = _load_multi_episodes(
+        obs, dt, pass_flag, passer_id, receiver_id, template_id, episode_ids = _load_multi_episodes(
             args.data_dir, args.num, args.shuffle, args.seed, args.gap_frames
         )
     elif args.npz:
-        obs, dt, pass_flag, passer_id, receiver_id = _load_episode(args.npz)
+        obs, dt, pass_flag, passer_id, receiver_id, template_id = _load_episode(args.npz)
         episode_ids = None
     else:
-        obs, dt, pass_flag, passer_id, receiver_id = _generate_episode(args.seed, args.max_steps)
+        obs, dt, pass_flag, passer_id, receiver_id, template_id = _generate_episode(args.seed, args.max_steps)
         episode_ids = None
 
     _render(
@@ -342,6 +370,7 @@ def main():
         passer_id=passer_id,
         receiver_id=receiver_id,
         pass_hold=args.pass_hold,
+        template_id=template_id,
         episode_ids=episode_ids,
     )
     print(f"Saved to {args.out}")

@@ -42,7 +42,59 @@ def _normalize_dt(dt_val, n_frames: int) -> np.ndarray:
     return np.concatenate([dt_arr, pad], axis=0)
 
 
-def load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _maybe_scalar(val):
+    if val is None:
+        return None
+    try:
+        if hasattr(val, "item"):
+            return float(val.item())
+    except Exception:
+        pass
+    if isinstance(val, np.ndarray):
+        if val.size == 0:
+            return None
+        return float(val.reshape(-1)[0])
+    try:
+        return float(val)
+    except Exception:
+        return None
+
+
+def _infer_field_scales(data_fields, move_pos_scale_x, move_pos_scale_y, field_L, field_W):
+    if move_pos_scale_x is not None and move_pos_scale_y is not None:
+        return float(move_pos_scale_x), float(move_pos_scale_y)
+
+    if field_L is None:
+        for key in ("field_L", "field_length", "pitch_length", "L"):
+            if data_fields is not None and key in data_fields:
+                field_L = _maybe_scalar(data_fields.get(key))
+                break
+    if field_W is None:
+        for key in ("field_W", "field_width", "pitch_width", "W"):
+            if data_fields is not None and key in data_fields:
+                field_W = _maybe_scalar(data_fields.get(key))
+                break
+
+    if field_L is not None and field_W is not None:
+        return float(field_L) / 2.0, float(field_W) / 2.0
+
+    if move_pos_scale_x is not None:
+        return float(move_pos_scale_x), float(move_pos_scale_y or move_pos_scale_x)
+
+    return 52.5, 34.0
+
+
+def _norm_to_metric(pos_norm: np.ndarray, scale_x: float, scale_y: float, origin: str) -> np.ndarray:
+    pos = pos_norm.copy()
+    pos[..., 0] = pos[..., 0] * scale_x
+    pos[..., 1] = pos[..., 1] * scale_y
+    if origin == "corner":
+        pos[..., 0] += scale_x
+        pos[..., 1] += scale_y
+    return pos
+
+
+def load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     data = np.load(fp)
     obs = data["obs"]
     if "act_move" in data:
@@ -68,7 +120,18 @@ def load_npz(fp: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
                 dt_safe = np.clip(dt, 1e-6, None)
                 move = move / dt_safe[:, None, None]
 
-    return obs, move, dt
+    meta = {
+        "field_L": _maybe_scalar(data.get("field_L", None)),
+        "field_W": _maybe_scalar(data.get("field_W", None)),
+        "field_length": _maybe_scalar(data.get("field_length", None)),
+        "field_width": _maybe_scalar(data.get("field_width", None)),
+        "pitch_length": _maybe_scalar(data.get("pitch_length", None)),
+        "pitch_width": _maybe_scalar(data.get("pitch_width", None)),
+        "L": _maybe_scalar(data.get("L", None)),
+        "W": _maybe_scalar(data.get("W", None)),
+    }
+    data.close()
+    return obs, move, dt, meta
 
 
 def stack_obs(obs: np.ndarray, k: int) -> np.ndarray:
@@ -163,22 +226,14 @@ def eval_train_split(
     use_move_residual: bool,
     move_pos_scale_x: float,
     move_pos_scale_y: float,
+    coord_origin: str,
+    field_L: float,
+    field_W: float,
 ) -> None:
     state = torch.load(checkpoint, map_location=device)
     state_dict = state.get("model", state)
     move_horizon = _infer_move_horizon(state_dict, default_horizon=1)
-    model = SoccerPolicy(
-        d_model=d_model,
-        nhead=nhead,
-        num_layers=num_layers,
-        dropout=0.1,
-        input_dim=3 * obs_history,
-        move_horizon=move_horizon,
-    ).to(device)
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
-    if missing or unexpected:
-        print(f"[Warn] load_state_dict mismatch. Missing={missing} Unexpected={unexpected}")
-    model.eval()
+    model = None
 
     agg = {
         "count": 0,
@@ -191,20 +246,43 @@ def eval_train_split(
     }
 
     for fp in files:
-        obs, move, dt = load_npz(fp)
+        obs, move, dt, meta = load_npz(fp)
         if max_frames > 0:
             obs = obs[:max_frames]
             move = move[:max_frames]
             dt = dt[:max_frames]
+
+        n_agents = obs.shape[1]
+        n_att = move.shape[1]
+        if model is None:
+            model = SoccerPolicy(
+                d_model=d_model,
+                nhead=nhead,
+                num_layers=num_layers,
+                dropout=0.1,
+                input_dim=3 * obs_history,
+                move_horizon=move_horizon,
+                num_agents=n_agents,
+                num_attackers=n_att,
+            ).to(device)
+            missing, unexpected = model.load_state_dict(state_dict, strict=False)
+            if missing or unexpected:
+                print(f"[Warn] load_state_dict mismatch. Missing={missing} Unexpected={unexpected}")
+            model.eval()
+
+        scale_x, scale_y = _infer_field_scales(
+            meta, move_pos_scale_x, move_pos_scale_y, field_L, field_W
+        )
         stacked = stack_obs(obs, obs_history)
         t = stacked.shape[0]
         base_vel = None
         if use_move_residual and obs_history >= 2:
-            scale = np.array([move_pos_scale_x, move_pos_scale_y], dtype=np.float32)
-            pos_last = stacked[:, :11, (obs_history - 1) * 3 : (obs_history - 1) * 3 + 2]
-            pos_prev = stacked[:, :11, (obs_history - 2) * 3 : (obs_history - 2) * 3 + 2]
+            pos_last = stacked[:, :n_att, (obs_history - 1) * 3 : (obs_history - 1) * 3 + 2]
+            pos_prev = stacked[:, :n_att, (obs_history - 2) * 3 : (obs_history - 2) * 3 + 2]
+            pos_last_m = _norm_to_metric(pos_last, scale_x, scale_y, coord_origin)
+            pos_prev_m = _norm_to_metric(pos_prev, scale_x, scale_y, coord_origin)
             dt_safe = np.clip(dt, 1e-6, None).reshape(-1, 1, 1)
-            base_vel = (pos_last * scale - pos_prev * scale) / dt_safe
+            base_vel = (pos_last_m - pos_prev_m) / dt_safe
 
         preds = []
         with torch.no_grad():
@@ -276,8 +354,11 @@ def main() -> None:
     parser.add_argument("--nhead", type=int, default=4)
     parser.add_argument("--num_layers", type=int, default=3)
     parser.add_argument("--use_move_residual", type=int, default=1, help="1 to add base velocity (match training), 0 to use raw head output")
-    parser.add_argument("--move_pos_scale_x", type=float, default=52.5)
-    parser.add_argument("--move_pos_scale_y", type=float, default=34.0)
+    parser.add_argument("--move_pos_scale_x", type=float, default=None, help="Half-field scale X (meters). Overrides field_L.")
+    parser.add_argument("--move_pos_scale_y", type=float, default=None, help="Half-field scale Y (meters). Overrides field_W.")
+    parser.add_argument("--coord_origin", choices=["center", "corner"], default="center")
+    parser.add_argument("--field_L", type=float, default=None, help="Full field length (meters). If provided, scale_x=field_L/2.")
+    parser.add_argument("--field_W", type=float, default=None, help="Full field width (meters). If provided, scale_y=field_W/2.")
     args = parser.parse_args()
 
     files = list_npz(args.data)
@@ -310,6 +391,9 @@ def main() -> None:
         bool(args.use_move_residual),
         args.move_pos_scale_x,
         args.move_pos_scale_y,
+        args.coord_origin,
+        args.field_L,
+        args.field_W,
     )
 
 
